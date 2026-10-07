@@ -77,6 +77,7 @@ void Application::initSetting()
         {"Meta+Space", "Spotlight", "lingmo-spotlight"},
         {"Meta+R", "Reload desktop", "lingmo-reload"},
         {"Meta+V", "Clipboard history", "lingmo-clipboard --history"},
+        {"Meta+I", "Assistant", "lingmo-assistant"},
     };
     for (const QStringList &shortcut : lateDefaults) {
         bool bound = setting.childGroups().contains(shortcut[0]);
