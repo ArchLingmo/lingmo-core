@@ -75,6 +75,7 @@ public slots:
 
 private:
     void initEnvironments();
+    void applyQtEnvironment();
     void initLanguage();
     void initScreenScaleFactors();
     void initXResource();

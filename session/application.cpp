@@ -123,6 +123,15 @@ Application::Application(int &argc, char **argv)
     // variables (e.g. LANG and LC_*)
     // ref plasma
     importSystemdEnvrionment();
+    // The systemd user environment carries the host's Qt variables (PAM reads
+    // /etc/environment): the shell must not inherit them back, and neither should
+    // apps D-Bus/systemd start later
+    applyQtEnvironment();
+    // unset-environment can't drop what the systemd user manager inherited from
+    // PAM, but an empty value overrides it, and Qt ignores an empty style
+    runSync(QStringLiteral("systemctl"), {QStringLiteral("--user"), QStringLiteral("set-environment"),
+                                          QStringLiteral("QT_STYLE_OVERRIDE="), QStringLiteral("QT_QUICK_CONTROLS_STYLE=")});
+    syncDBusEnvironment();
 
     qunsetenv("XCURSOR_THEME");
     qunsetenv("XCURSOR_SIZE");
@@ -160,6 +169,18 @@ void Application::launch(const QString &exec, const QString &workingDir, const Q
     process.startDetached();
 }
 
+// The Lingmo platform theme and QtQuick style. A style forced by the host
+// environment (e.g. QT_STYLE_OVERRIDE=kvantum from /etc/environment) overrides
+// the Lingmo style; since Qt 6.12 QtQuick honours it too and the shell's QML
+// fails to load ("module kvantum is not installed"): nothing but black.
+void Application::applyQtEnvironment()
+{
+    qputenv("QT_QPA_PLATFORMTHEME", "lingmo");
+    qputenv("QT_PLATFORM_PLUGIN", "lingmo");
+    qunsetenv("QT_STYLE_OVERRIDE");
+    qunsetenv("QT_QUICK_CONTROLS_STYLE");
+}
+
 void Application::initEnvironments()
 {
     // Set defaults
@@ -182,12 +203,7 @@ void Application::initEnvironments()
     qputenv("XDG_SESSION_DESKTOP", "Lingmo");
 
     // Qt
-    qputenv("QT_QPA_PLATFORMTHEME", "lingmo");
-    qputenv("QT_PLATFORM_PLUGIN", "lingmo");
-    // A style forced by the host environment (e.g. kvantum) overrides the Lingmo
-    // style and breaks QML that relies on it.
-    qunsetenv("QT_STYLE_OVERRIDE");
-    qunsetenv("QT_QUICK_CONTROLS_STYLE");
+    applyQtEnvironment();
     
     // ref: https://stackoverflow.com/questions/34399993/qml-performance-issue-when-updating-an-item-in-presence-of-many-non-overlapping
     qputenv("QT_QPA_UPDATE_IDLE_TIME", "10");
