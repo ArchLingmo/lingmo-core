@@ -89,8 +89,10 @@ ThemeManager::ThemeManager(QObject *parent)
     m_backgroundColor = m_settings->value("BackgroundColor", "#2B8ADA").toString();
     m_cursorTheme = m_settings->value("CursorTheme", "default").toString();
     m_cursorSize = m_settings->value("CursorSize", 24).toInt();
-    m_iconTheme = m_settings->value("IconTheme", "Crule").toString();
-    m_darkIconTheme = m_settings->value("DarkIconTheme", "Crule-dark").toString();
+    // Lingmo's own icon theme unless the user picked another one (the key is only
+    // written when they do)
+    m_iconTheme = m_settings->value("IconTheme", "Lingmo").toString();
+    m_darkIconTheme = m_settings->value("DarkIconTheme", "Lingmo-dark").toString();
 
     // Start the DE and need to update the settings again.
     updateGtk3Config();
@@ -294,7 +296,7 @@ void ThemeManager::setDevicePixelRatio(qreal ratio)
         QList<QVariant> args;
         args << "lingmo-settings";
         args << ((unsigned int) 0);
-        args << "preferences-system";
+        args << "lingmo-settings";
         args << "";
         args << tr("Screen scaling needs to be re-login to take effect");
         args << QStringList();
@@ -646,7 +648,7 @@ void ThemeManager::setDarkIconTheme(const QString &iconTheme)
         return;
 
     m_darkIconTheme = iconTheme;
-    m_settings->setValue("DarkIconTheme", m_iconTheme);
+    m_settings->setValue("DarkIconTheme", m_darkIconTheme);
     updateGtk3Config();
     emit iconThemeChanged();
 }

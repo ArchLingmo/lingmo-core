@@ -156,9 +156,9 @@ private:
     QString m_cursorTheme;
     int m_cursorSize;
 
-    QString m_iconTheme = "Crule";
+    QString m_iconTheme = "Lingmo";
 
-    QString m_darkIconTheme = "Crule-dark";
+    QString m_darkIconTheme = "Lingmo-dark";
 };
 
 #endif

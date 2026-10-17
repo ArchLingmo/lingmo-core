@@ -80,7 +80,7 @@ void Language::setLanguage(const QString &code)
         QList<QVariant> args;
         args << "lingmo-settings";
         args << ((unsigned int) 0);
-        args << "preferences-system";
+        args << "lingmo-settings";
         args << "";
         args << tr("The system language has been changed, please log out and log in");
         args << QStringList();
