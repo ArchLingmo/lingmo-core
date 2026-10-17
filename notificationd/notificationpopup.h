@@ -30,6 +30,9 @@ public:
     explicit NotificationPopup(QQuickView *parent = nullptr);
 
     bool eventFilter(QObject *object, QEvent *event) override;
+
+    // Popups never take focus, except to type an inline reply
+    Q_INVOKABLE void takeFocus();
 };
 
 #endif // NOTIFICATIONPOPUP_H

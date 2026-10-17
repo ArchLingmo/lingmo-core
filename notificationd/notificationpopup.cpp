@@ -35,6 +35,15 @@ NotificationPopup::NotificationPopup(QQuickView *parent)
     setColor(Qt::transparent);
 }
 
+void NotificationPopup::takeFocus()
+{
+    setFlag(Qt::WindowDoesNotAcceptFocus, false);
+    // As a pager would: KWin gives focus to the popup even though the user's
+    // window is active
+    KX11Extras::forceActiveWindow(winId());
+    requestActivate();
+}
+
 bool NotificationPopup::eventFilter(QObject *object, QEvent *event)
 {
     if (event->type() == QEvent::Show) {

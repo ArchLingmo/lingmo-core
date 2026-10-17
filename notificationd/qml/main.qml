@@ -36,7 +36,10 @@ Item {
 
     property Instantiator popupInstantiator: Instantiator {
         model: notificationsModel
-        delegate: QmlNotificationPopup {}
+        delegate: QmlNotificationPopup {
+            // Actions and multi-line bodies make popups taller: restack them
+            onHeightChanged: root.positionPopups()
+        }
 
         onObjectAdded: {
             positionPopups()

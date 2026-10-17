@@ -27,7 +27,13 @@ public:
         UpdatedRole,
         BodyRole,
         IconNameRole,
-        HasDefaultActionRole
+        HasDefaultActionRole,
+        AppNameRole,
+        ActionsRole,        // [{key, label}] without default / inline-reply
+        HasReplyRole,
+        ReplyPlaceholderRole,
+        ReplySubmitTextRole,
+        GroupRole           // app the notification is grouped under
     };
     Q_ENUM(Roles)
 
@@ -45,6 +51,13 @@ public:
     Q_INVOKABLE void invokeDefaultAction(uint id);
     // Click on a notification: its default action, or else bring its app forward
     Q_INVOKABLE void activate(uint id);
+    // One of the notification's buttons; closes it unless it is resident
+    Q_INVOKABLE void invokeAction(uint id, const QString &actionKey);
+    // Inline reply typed in the notification
+    Q_INVOKABLE void reply(uint id, const QString &text);
+
+    // Name the notification is grouped under in the notification center
+    static QString groupOf(const Notification &notification);
 
     int rowOfNotification(uint id) const;
     void removeRows(const QVector<int> &rows);

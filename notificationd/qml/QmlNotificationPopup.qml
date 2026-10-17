@@ -28,13 +28,15 @@ import Lingmo.Notification 1.0
 NotificationPopup {
     id: control
     flags: Qt.WindowDoesNotAcceptFocus | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
-    width: 400
-    height: 70
+    width: 380
+    height: _layout.implicitHeight + LingmoUI.Units.largeSpacing * 2
     color: "transparent"
     visible: false
     onVisibleChanged: if (visible) timer.restart()
 
     property int defaultTimeout: 7000
+    // Longer when there is something to act on
+    readonly property bool actionable: _actions.visible
 
     LingmoUI.WindowShadow {
         view: control
@@ -51,18 +53,27 @@ NotificationPopup {
     Rectangle {
         id: _background
         anchors.fill: parent
-        radius: height * 0.2
+        radius: LingmoUI.Theme.hugeRadius
         color: LingmoUI.Theme.backgroundColor
-        opacity: 0.5
+        opacity: LingmoUI.Theme.darkMode ? 0.75 : 0.85
+        border.width: 1
+        border.color: LingmoUI.Theme.darkMode ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.08)
+    }
+
+    // Hovering anywhere (buttons included) holds the popup
+    HoverHandler {
+        id: _hover
+        onHoveredChanged: {
+            if (hovered)
+                timer.stop()
+            else if (!_actions.replying)
+                timer.restart()
+        }
     }
 
     MouseArea {
         id: _mouseArea
-        z: 999
         anchors.fill: parent
-        hoverEnabled: true
-        onEntered: timer.stop()
-        onExited: timer.restart()
 
         onClicked: {
             notificationsModel.activate(model.notificationId)
@@ -70,105 +81,130 @@ NotificationPopup {
         }
     }
 
-    RowLayout {
-        anchors.fill: parent
-        anchors.leftMargin: LingmoUI.Units.smallSpacing * 1.5
-        anchors.rightMargin: LingmoUI.Units.smallSpacing
-        anchors.topMargin: LingmoUI.Units.smallSpacing
-        anchors.bottomMargin: LingmoUI.Units.smallSpacing
-        spacing: LingmoUI.Units.largeSpacing
+    ColumnLayout {
+        id: _layout
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.margins: LingmoUI.Units.largeSpacing
+        spacing: LingmoUI.Units.smallSpacing
 
-        Image {
-            id: _icon
-            width: 48
-            height: width
-            source: model.iconName ? "image://icontheme/%1".arg(model.iconName)
-                                   : ""
-            sourceSize: Qt.size(width, height)
-            Layout.alignment: Qt.AlignVCenter
-            antialiasing: true
-            smooth: true
-            visible: status === Image.Ready
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: LingmoUI.Units.largeSpacing
+
+            Image {
+                id: _icon
+                Layout.preferredWidth: LingmoUI.Units.iconSizes.large * 0.8
+                Layout.preferredHeight: Layout.preferredWidth
+                Layout.alignment: Qt.AlignTop
+                source: model.iconName ? "image://icontheme/%1".arg(model.iconName)
+                                       : "image://icontheme/preferences-desktop-notification"
+                sourceSize: Qt.size(Layout.preferredWidth, Layout.preferredWidth)
+                antialiasing: true
+                smooth: true
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 2
+
+                // App name · when
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: model.appName !== ""
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: model.appName
+                        elide: Text.ElideRight
+                        color: LingmoUI.Theme.disabledTextColor
+                        font.pointSize: LingmoUI.Theme.fontSize * 0.9
+                    }
+
+                    Label {
+                        text: qsTr("now")
+                        color: LingmoUI.Theme.disabledTextColor
+                        font.pointSize: LingmoUI.Theme.fontSize * 0.9
+                        // Room for the close button
+                        rightPadding: 22
+                    }
+                }
+
+                Label {
+                    text: model.summary
+                    visible: text
+                    elide: Text.ElideRight
+                    font.bold: true
+                    Layout.fillWidth: true
+                    rightPadding: LingmoUI.Units.largeSpacing
+                }
+
+                Label {
+                    text: model.body.replace(/\n/g, "<br>")
+                    // The server announces body-markup: <b>, <i>, <a>... (AutoText only looks at the first line)
+                    textFormat: Text.StyledText
+                    onLinkActivated: (link) => Qt.openUrlExternally(link)
+                    visible: text
+                    maximumLineCount: 3
+                    elide: Text.ElideRight
+                    wrapMode: Text.Wrap
+                    Layout.fillWidth: true
+                }
+            }
         }
 
-        Image {
-            id: _defaultIcon
-            width: 48
-            height: width
-            source: "image://icontheme/preferences-desktop-notification"
-            sourceSize: Qt.size(width, height)
-            Layout.alignment: Qt.AlignVCenter
-            antialiasing: true
-            smooth: true
-            visible: !_icon.visible
-        }
+        NotificationActions {
+            id: _actions
+            Layout.fillWidth: true
+            Layout.leftMargin: LingmoUI.Units.iconSizes.large * 0.8 + LingmoUI.Units.largeSpacing
+            Layout.topMargin: LingmoUI.Units.smallSpacing / 2
+            z: 2
+            actions: model.actions
+            hasReply: model.hasReply
+            replyPlaceholder: model.replyPlaceholder
+            replySubmitText: model.replySubmitText
 
-        ColumnLayout {
-            spacing: 0
-
-            Item {
-                Layout.fillHeight: true
-            }
-
-            Label {
-                text: model.summary
-                visible: text
-                elide: Text.ElideRight
-                Layout.fillWidth: true
-                rightPadding: LingmoUI.Units.smallSpacing
-            }
-
-            Label {
-                text: model.body.replace(/\n/g, "<br>")
-                // The server announces body-markup: <b>, <i>, <a>... (AutoText only looks at the first line)
-                textFormat: Text.StyledText
-                onLinkActivated: (link) => Qt.openUrlExternally(link)
-                visible: text
-                rightPadding: LingmoUI.Units.smallSpacing
-                maximumLineCount: 2
-                elide: Text.ElideRight
-                wrapMode: Text.Wrap
-                Layout.fillWidth: true
-                // Layout.fillHeight: true
-                Layout.alignment: Qt.AlignVCenter
-            }
-
-            Item {
-                Layout.fillHeight: true
+            onActionInvoked: (key) => notificationsModel.invokeAction(model.notificationId, key)
+            onReplied: (text) => notificationsModel.reply(model.notificationId, text)
+            onReplyStarted: {
+                timer.stop()
+                // The popup normally never takes focus; it has to for typing
+                control.takeFocus()
             }
         }
     }
 
-    Image {
+    // Close button, on hover
+    Item {
         anchors.top: parent.top
         anchors.right: parent.right
-        anchors.topMargin: LingmoUI.Units.smallSpacing / 2
+        anchors.topMargin: LingmoUI.Units.smallSpacing
         anchors.rightMargin: LingmoUI.Units.smallSpacing
-        width: 24
-        height: 24
-        source: "qrc:/images/" + (LingmoUI.Theme.darkMode ? "dark" : "light") + "/close.svg"
-        sourceSize: Qt.size(width, height)
-        visible: _mouseArea.containsMouse || _closeBtnArea.containsMouse
+        width: 22
+        height: 22
+        visible: _hover.hovered
         z: 9999
 
         Rectangle {
-            property color hoveredColor: LingmoUI.Theme.darkMode ? Qt.lighter(LingmoUI.Theme.backgroundColor, 2)
-                                                               : Qt.darker(LingmoUI.Theme.backgroundColor, 1.2)
-            property color pressedColor: LingmoUI.Theme.darkMode ? Qt.lighter(LingmoUI.Theme.backgroundColor, 1.5)
-                                                               : Qt.darker(LingmoUI.Theme.backgroundColor, 1.3)
-
-            z: -1
             anchors.fill: parent
-            color: "transparent"
-            // color: _closeBtnArea.pressed ? pressedColor : _closeBtnArea.containsMouse ? hoveredColor : "transparent"
             radius: height / 2
+            color: _closeBtnArea.containsMouse ? Qt.rgba(LingmoUI.Theme.textColor.r, LingmoUI.Theme.textColor.g,
+                                                         LingmoUI.Theme.textColor.b, 0.12)
+                                               : "transparent"
+            Behavior on color { ColorAnimation { duration: 120 } }
+        }
+
+        Image {
+            anchors.fill: parent
+            source: "qrc:/images/" + (LingmoUI.Theme.darkMode ? "dark" : "light") + "/close.svg"
+            sourceSize: Qt.size(width, height)
         }
 
         MouseArea {
             id: _closeBtnArea
             anchors.fill: parent
             hoverEnabled: true
-            onEntered: timer.stop()
             onClicked: {
                 notificationsModel.close(model.notificationId)
             }
@@ -177,7 +213,7 @@ NotificationPopup {
 
     Timer {
         id: timer
-        interval: control.defaultTimeout
+        interval: control.actionable ? control.defaultTimeout * 1.5 : control.defaultTimeout
 
         onTriggered: {
             notificationsModel.expired(model.notificationId)

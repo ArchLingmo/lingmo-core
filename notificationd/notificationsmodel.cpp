@@ -67,7 +67,19 @@ QVariant NotificationsModel::data(const QModelIndex &index, int role) const
     case NotificationsModel::IconNameRole:
         return notification.appIcon;
     case NotificationsModel::HasDefaultActionRole:
-        return notification.actions.contains("default");
+        return notification.hasDefaultAction();
+    case NotificationsModel::AppNameRole:
+        return notification.appName;
+    case NotificationsModel::ActionsRole:
+        return notification.actionList();
+    case NotificationsModel::HasReplyRole:
+        return notification.hasReply();
+    case NotificationsModel::ReplyPlaceholderRole:
+        return notification.replyPlaceholder;
+    case NotificationsModel::ReplySubmitTextRole:
+        return notification.replySubmitText;
+    case NotificationsModel::GroupRole:
+        return groupOf(notification);
     default:
         break;
     }
@@ -162,6 +174,37 @@ void NotificationsModel::activate(uint notificationId)
         return;
     }
     AppActivator::activate(notification.pid, {notification.desktopEntry, notification.appIcon, notification.appName});
+}
+
+void NotificationsModel::invokeAction(uint notificationId, const QString &actionKey)
+{
+    const int row = rowOfNotification(notificationId);
+    if (row == -1)
+        return;
+
+    const bool resident = m_notifications.at(row).resident;
+    NotificationServer::self()->InvokeAction(notificationId, actionKey);
+    if (!resident)
+        close(notificationId);
+}
+
+void NotificationsModel::reply(uint notificationId, const QString &text)
+{
+    const int row = rowOfNotification(notificationId);
+    if (row == -1 || text.trimmed().isEmpty())
+        return;
+
+    NotificationServer::self()->reply(notificationId, text);
+    close(notificationId);
+}
+
+QString NotificationsModel::groupOf(const Notification &notification)
+{
+    if (!notification.appName.isEmpty())
+        return notification.appName;
+    if (!notification.desktopEntry.isEmpty())
+        return notification.desktopEntry;
+    return notification.appIcon;
 }
 
 int NotificationsModel::rowOfNotification(uint id) const
@@ -260,10 +303,10 @@ void NotificationsModel::onNotificationRemoved(uint removedId, NotificationServe
     if (reason == NotificationServer::CloseReason::Expired) {
         const QModelIndex idx = NotificationsModel::index(row, 0);
         Notification &notification = m_notifications[row];
-        // notification.setExpired(true);
-        notification.actions.clear();
         emit dataChanged(idx, idx);
 
+        // Keeps its actions: they can still be used from the notification center
+        // while the app runs
         HistoryModel::self()->add(notification);
 
         // return;

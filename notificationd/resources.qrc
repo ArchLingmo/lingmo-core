@@ -8,5 +8,6 @@
         <file>images/dark/clear.svg</file>
         <file>images/light/clear.svg</file>
         <file>qml/IconButton.qml</file>
+        <file>qml/NotificationActions.qml</file>
     </qresource>
 </RCC>

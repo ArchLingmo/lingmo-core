@@ -53,6 +53,8 @@ public:
     void UnRegisterWatcher();
 
     void InvokeAction(uint id, const QString &actionKey);
+    // Inline reply typed in a notification: NotificationReplied on the bus
+    void reply(uint id, const QString &text);
 
     // Self
     void closeNotification(uint id, CloseReason reason);
@@ -61,6 +63,7 @@ Q_SIGNALS:
     // DBus
     void NotificationClosed(uint id, uint reason);
     void ActionInvoked(uint id, const QString &actionKey);
+    void NotificationReplied(uint id, const QString &text);
 
     // Self
     void notificationAdded(const Notification &notification);
@@ -68,7 +71,7 @@ Q_SIGNALS:
     void notificationRemoved(uint id, CloseReason reason);
 
 private:
-    uint m_highestId = -1;
+    uint m_highestId = 1;
     Notification m_lastNotification;
     QDBusServiceWatcher *m_notificationWatcher;
 };

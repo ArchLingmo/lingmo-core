@@ -31,17 +31,19 @@ Item {
 
     visible: true
 
+    readonly property color ink: LingmoUI.Theme.textColor
+
     Rectangle {
         id: _background
         anchors.fill: parent
-        color: LingmoUI.Theme.secondBackgroundColor
-        radius: NotificationDialog.width * 0.05
-        opacity: 0.7
+        color: LingmoUI.Theme.backgroundColor
+        radius: LingmoUI.Theme.hugeRadius * 1.3
+        opacity: LingmoUI.Theme.darkMode ? 0.75 : 0.82
 
         border.width: 1 / LingmoUI.Units.devicePixelRatio
         border.pixelAligned: Screen.devicePixelRatio > 1 ? false : true
-        border.color: LingmoUI.Theme.darkMode ? Qt.rgba(255, 255, 255, 0.1)
-                                            : Qt.rgba(0, 0, 0, 0.05)
+        border.color: LingmoUI.Theme.darkMode ? Qt.rgba(1, 1, 1, 0.12)
+                                              : Qt.rgba(0, 0, 0, 0.08)
     }
 
     readonly property rect screenRect: {
@@ -53,7 +55,7 @@ Item {
     }
 
     onScreenRectChanged: {
-        NotificationDialog.width = 350
+        NotificationDialog.width = 380
         NotificationDialog.height = screenRect.height - LingmoUI.Units.smallSpacing * 3
         NotificationDialog.x = screenRect.x + screenRect.width - NotificationDialog.width - LingmoUI.Units.smallSpacing * 1.5
         NotificationDialog.y = screenRect.y + LingmoUI.Units.smallSpacing * 1.5
@@ -108,7 +110,8 @@ Item {
                 elide: Text.ElideRight
                 leftPadding: LingmoUI.Units.smallSpacing
                 color: LingmoUI.Theme.textColor
-                font.pointSize: 15
+                font.bold: true
+                font.pointSize: LingmoUI.Theme.fontSize * 1.4
 
                 MouseArea {
                     anchors.fill: parent
@@ -123,13 +126,10 @@ Item {
                 }
             }
 
-            IconButton {
+            Button {
                 visible: _view.count > 0
-                Layout.preferredHeight: 30
-                Layout.preferredWidth: 30
-                source: LingmoUI.Theme.darkMode ? "qrc:/images/dark/clear.svg"
-                                              : "qrc:/images/light/clear.svg"
-                onLeftButtonClicked: historyModel.clearAll()
+                text: qsTr("Clear all")
+                onClicked: historyModel.clearAll()
             }
         }
 
@@ -141,20 +141,22 @@ Item {
                 id: _view
                 anchors.fill: parent
                 model: historyModel
-                spacing: LingmoUI.Units.largeSpacing
-                highlightFollowsCurrentItem: true
+                spacing: LingmoUI.Units.smallSpacing
                 clip: true
+                boundsBehavior: Flickable.StopAtBounds
 
                 leftMargin: LingmoUI.Units.largeSpacing
                 rightMargin: LingmoUI.Units.largeSpacing
 
                 ScrollBar.vertical: ScrollBar {}
 
+                LingmoUI.WheelHandler { target: _view }
+
                 Label {
                     anchors.centerIn: parent
                     text: qsTr("No notifications")
                     color: LingmoUI.Theme.disabledTextColor
-                    font.pointSize: 15
+                    font.pointSize: LingmoUI.Theme.fontSize * 1.3
                     visible: _view.count === 0
                 }
 
@@ -162,78 +164,119 @@ Item {
                     NumberAnimation { properties: "x, y"; duration: 250 }
                 }
 
-                delegate: Item {
+                // One header per app: icon, name and a button that clears the group
+                section.property: "group"
+                section.criteria: ViewSection.FullString
+                section.delegate: Item {
+                    required property string section
+
                     width: ListView.view.width - ListView.view.leftMargin - ListView.view.rightMargin
-                    height: 70
+                    height: 36
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.topMargin: LingmoUI.Units.smallSpacing
+                        anchors.leftMargin: LingmoUI.Units.smallSpacing
+                        spacing: LingmoUI.Units.smallSpacing
+
+                        Image {
+                            readonly property string iconName: historyModel.groupIcon(parent.parent.section)
+                            Layout.preferredWidth: LingmoUI.Units.iconSizes.small
+                            Layout.preferredHeight: LingmoUI.Units.iconSizes.small
+                            sourceSize: Qt.size(width, height)
+                            source: "image://icontheme/" + (iconName ? iconName : "preferences-desktop-notification")
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: parent.parent.section !== "" ? parent.parent.section : qsTr("Other")
+                            elide: Text.ElideRight
+                            font.bold: true
+                            color: LingmoUI.Theme.textColor
+                        }
+
+                        IconButton {
+                            Layout.preferredWidth: 26
+                            Layout.preferredHeight: 26
+                            source: "qrc:/images/" + (LingmoUI.Theme.darkMode ? "dark" : "light") + "/clear.svg"
+                            onLeftButtonClicked: historyModel.clearGroup(parent.parent.section)
+                        }
+                    }
+                }
+
+                delegate: Item {
+                    id: _item
+
+                    width: ListView.view.width - ListView.view.leftMargin - ListView.view.rightMargin
+                    height: _itemLayout.implicitHeight + LingmoUI.Units.largeSpacing * 2
+
+                    HoverHandler { id: _itemHover }
 
                     Rectangle {
                         anchors.fill: parent
-                        color: LingmoUI.Theme.darkMode ? "white"
-                                                     : "black"
+                        color: LingmoUI.Theme.secondBackgroundColor
                         radius: LingmoUI.Theme.bigRadius
-                        opacity: LingmoUI.Theme.darkMode ? 0.1
-                                                       : 0.03
+                        opacity: _itemHover.hovered ? (LingmoUI.Theme.darkMode ? 0.7 : 1.0)
+                                                    : (LingmoUI.Theme.darkMode ? 0.5 : 0.75)
+                        Behavior on opacity { NumberAnimation { duration: 120 } }
                     }
 
                     MouseArea {
                         id: _itemMouseArea
                         anchors.fill: parent
-                        hoverEnabled: true
-                        z: 999
                         onClicked: {
                             historyModel.activate(index)
                             NotificationDialog.hide()
                         }
                     }
 
-                    RowLayout {
-                        anchors.fill: parent
+                    ColumnLayout {
+                        id: _itemLayout
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
                         anchors.margins: LingmoUI.Units.largeSpacing
-                        anchors.leftMargin: LingmoUI.Units.smallSpacing * 1.5
-                        anchors.rightMargin: LingmoUI.Units.smallSpacing * 1.5
                         spacing: LingmoUI.Units.smallSpacing
 
-                        Image {
-                            id: _icon
-                            width: 48
-                            height: width
-                            source: model.iconName ? "image://icontheme/%1".arg(model.iconName)
-                                                   : ""
-                            sourceSize: Qt.size(width, height)
-                            Layout.alignment: Qt.AlignVCenter
-                            antialiasing: true
-                            smooth: true
-                            visible: status === Image.Ready
-                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: LingmoUI.Units.largeSpacing
 
-                        Image {
-                            id: _defaultIcon
-                            width: 48
-                            height: width
-                            source: "image://icontheme/preferences-desktop-notification"
-                            sourceSize: Qt.size(width, height)
-                            Layout.alignment: Qt.AlignVCenter
-                            antialiasing: true
-                            smooth: true
-                            visible: !_icon.visible
-                        }
-
-                        ColumnLayout {
-                            spacing: 0
-
-                            Item {
-                                Layout.fillHeight: true
+                            Image {
+                                id: _icon
+                                Layout.preferredWidth: LingmoUI.Units.iconSizes.medium
+                                Layout.preferredHeight: LingmoUI.Units.iconSizes.medium
+                                Layout.alignment: Qt.AlignTop
+                                source: model.iconName ? "image://icontheme/%1".arg(model.iconName)
+                                                       : "image://icontheme/preferences-desktop-notification"
+                                sourceSize: Qt.size(Layout.preferredWidth, Layout.preferredHeight)
+                                antialiasing: true
+                                smooth: true
                             }
 
-                            Label {
-                                text: model.summary
-                                visible: text
-                                elide: Text.ElideRight
+                            ColumnLayout {
                                 Layout.fillWidth: true
-                                rightPadding: LingmoUI.Units.smallSpacing
-                            }
+                                spacing: 2
 
-                            RowLayout {
+                                RowLayout {
+                                    Layout.fillWidth: true
+
+                                    Label {
+                                        text: model.summary
+                                        visible: text
+                                        elide: Text.ElideRight
+                                        font.bold: true
+                                        Layout.fillWidth: true
+                                    }
+
+                                    Label {
+                                        text: model.created
+                                        color: LingmoUI.Theme.disabledTextColor
+                                        font.pointSize: LingmoUI.Theme.fontSize * 0.9
+                                        rightPadding: _itemHover.hovered ? 22 : 0
+                                    }
+                                }
+
                                 Label {
                                     id: bodyLabel
                                     text: model.body.replace(/\n/g, "<br>")
@@ -241,59 +284,57 @@ Item {
                                     textFormat: Text.StyledText
                                     onLinkActivated: (link) => Qt.openUrlExternally(link)
                                     visible: text
-                                    rightPadding: LingmoUI.Units.smallSpacing
-                                    maximumLineCount: 2
+                                    maximumLineCount: 3
                                     elide: Text.ElideRight
                                     wrapMode: Text.Wrap
+                                    color: LingmoUI.Theme.textColor
                                     Layout.fillWidth: true
-                                    // Layout.fillHeight: true
-                                    Layout.alignment: Qt.AlignVCenter
-                                }
-
-                                Label {
-                                    text: model.created
-                                    rightPadding: LingmoUI.Units.smallSpacing
-                                    Layout.alignment: Qt.AlignRight
                                 }
                             }
+                        }
 
-                            Item {
-                                Layout.fillHeight: true
-                            }
+                        NotificationActions {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: LingmoUI.Units.iconSizes.medium + LingmoUI.Units.largeSpacing
+                            actions: model.actions
+                            hasReply: model.hasReply
+                            replyPlaceholder: model.replyPlaceholder
+                            replySubmitText: model.replySubmitText
+                            onActionInvoked: (key) => historyModel.invokeAction(index, key)
+                            onReplied: (text) => historyModel.reply(index, text)
                         }
                     }
 
-                    Image {
+                    // Remove, on hover
+                    Item {
                         anchors.top: parent.top
                         anchors.right: parent.right
-                        anchors.topMargin: LingmoUI.Units.smallSpacing / 2
-                        anchors.rightMargin: LingmoUI.Units.smallSpacing / 2
-                        width: 24
-                        height: 24
-                        source: "qrc:/images/" + (LingmoUI.Theme.darkMode ? "dark" : "light") + "/close.svg"
-                        sourceSize: Qt.size(width, height)
-                        visible: _itemMouseArea.containsMouse
+                        anchors.topMargin: LingmoUI.Units.smallSpacing
+                        anchors.rightMargin: LingmoUI.Units.smallSpacing
+                        width: 22
+                        height: 22
+                        visible: _itemHover.hovered
                         z: 9999
 
                         Rectangle {
-                            property color hoveredColor: LingmoUI.Theme.darkMode ? Qt.lighter(LingmoUI.Theme.backgroundColor, 2)
-                                                                               : Qt.darker(LingmoUI.Theme.backgroundColor, 1.2)
-                            property color pressedColor: LingmoUI.Theme.darkMode ? Qt.lighter(LingmoUI.Theme.backgroundColor, 1.5)
-                                                                               : Qt.darker(LingmoUI.Theme.backgroundColor, 1.3)
-
-                            z: -1
                             anchors.fill: parent
-                            color: "transparent"
                             radius: height / 2
+                            color: _closeBtnArea.containsMouse ? Qt.rgba(control.ink.r, control.ink.g, control.ink.b, 0.12)
+                                                               : "transparent"
+                            Behavior on color { ColorAnimation { duration: 120 } }
+                        }
+
+                        Image {
+                            anchors.fill: parent
+                            source: "qrc:/images/" + (LingmoUI.Theme.darkMode ? "dark" : "light") + "/close.svg"
+                            sourceSize: Qt.size(width, height)
                         }
 
                         MouseArea {
                             id: _closeBtnArea
                             anchors.fill: parent
-                            // hoverEnabled: true
-                            onClicked: {
-                                historyModel.remove(index)
-                            }
+                            hoverEnabled: true
+                            onClicked: historyModel.remove(index)
                         }
                     }
                 }

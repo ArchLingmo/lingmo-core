@@ -19,6 +19,25 @@
 
 #include "notification.h"
 
+#include <QDataStream>
+#include <QVariantMap>
+
+QVariantList Notification::actionList() const
+{
+    QVariantList list;
+    // actions is a flat [key, label, key, label, ...] list
+    for (int i = 0; i + 1 < actions.size(); i += 2) {
+        const QString &key = actions.at(i);
+        if (key == QLatin1String("default") || key == QLatin1String("inline-reply"))
+            continue;
+        QVariantMap action;
+        action.insert(QStringLiteral("key"), key);
+        action.insert(QStringLiteral("label"), actions.at(i + 1));
+        list << action;
+    }
+    return list;
+}
+
 QDataStream &operator<<(QDataStream &argument, const Notification &info)
 {
     argument << info.service << info.summary

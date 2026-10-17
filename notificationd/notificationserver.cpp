@@ -50,6 +50,7 @@ uint NotificationServer::Notify(const QString &app_name,
     if (wasReplaced) {
         id = replaces_id;
     } else {
+        // Ids start at 1 and skip 0 (no notification) when they wrap around
         if (!m_highestId)
             ++m_highestId;
 
@@ -68,6 +69,9 @@ uint NotificationServer::Notify(const QString &app_name,
     notification.actions = actions;
     notification.timeout = timeout;
     notification.desktopEntry = hints.value(QStringLiteral("desktop-entry")).toString();
+    notification.resident = hints.value(QStringLiteral("resident")).toBool();
+    notification.replyPlaceholder = hints.value(QStringLiteral("x-kde-reply-placeholder-text")).toString();
+    notification.replySubmitText = hints.value(QStringLiteral("x-kde-reply-submit-button-text")).toString();
 
     if (notification.appIcon.startsWith("file://"))
         notification.appIcon = notification.appIcon.replace("file://", "");
@@ -108,7 +112,8 @@ uint NotificationServer::Notify(const QString &app_name,
 
 void NotificationServer::CloseNotification(uint id)
 {
-    Q_UNUSED(id);
+    // The app took its notification back
+    closeNotification(id, CloseReason::Revoked);
 }
 
 QStringList NotificationServer::GetCapabilities() const
@@ -163,7 +168,14 @@ void NotificationServer::InvokeAction(uint id, const QString &actionKey)
     Q_EMIT ActionInvoked(id, actionKey);
 }
 
+void NotificationServer::reply(uint id, const QString &text)
+{
+    Q_EMIT NotificationReplied(id, text);
+}
+
 void NotificationServer::closeNotification(uint id, NotificationServer::CloseReason reason)
 {
     emit notificationRemoved(id, reason);
+    // Tell the sender too (the spec's NotificationClosed)
+    Q_EMIT NotificationClosed(id, static_cast<uint>(reason));
 }

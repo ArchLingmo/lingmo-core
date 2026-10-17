@@ -23,6 +23,8 @@
 #include <QObject>
 #include <QDateTime>
 #include <QMetaType>
+#include <QStringList>
+#include <QVariant>
 
 class Notification
 {
@@ -35,6 +37,11 @@ public:
     QString appIcon;
     QStringList actions;
     int timeout = -1;
+    // Inline reply (KDE extension: an "inline-reply" action + NotificationReplied)
+    QString replyPlaceholder;
+    QString replySubmitText;
+    // "resident": stays after one of its actions is invoked
+    bool resident = false;
     // Not saved in the history: only meaningful while the sender runs
     uint pid = 0;
     QString desktopEntry;
@@ -51,6 +58,11 @@ public:
                 created == other.created &&
                 updated == other.updated;
     }
+    bool hasReply() const { return actions.contains(QLatin1String("inline-reply")); }
+    bool hasDefaultAction() const { return actions.contains(QLatin1String("default")); }
+    // The visible actions as [{key, label}], without "default" and "inline-reply"
+    QVariantList actionList() const;
+
     friend QDataStream &operator<<(QDataStream &argument, const Notification &info);
     friend const QDataStream &operator>>(QDataStream &argument, Notification &info);
 };

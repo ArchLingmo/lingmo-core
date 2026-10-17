@@ -51,5 +51,35 @@
         <source>No notifications</source>
         <translation>Nenhuma notificação</translation>
     </message>
+    <message>
+        <source>Clear all</source>
+        <translation>Limpar tudo</translation>
+    </message>
+    <message>
+        <source>Other</source>
+        <translation>Outros</translation>
+    </message>
+</context>
+<context>
+    <name>NotificationActions</name>
+    <message>
+        <source>Reply</source>
+        <translation>Responder</translation>
+    </message>
+    <message>
+        <source>Write a reply…</source>
+        <translation>Escreva uma resposta…</translation>
+    </message>
+    <message>
+        <source>Send</source>
+        <translation>Enviar</translation>
+    </message>
+</context>
+<context>
+    <name>QmlNotificationPopup</name>
+    <message>
+        <source>now</source>
+        <translation>agora</translation>
+    </message>
 </context>
 </TS>

@@ -36,7 +36,13 @@ public:
         UpdatedRole,
         BodyRole,
         IconNameRole,
-        HasDefaultActionRole
+        HasDefaultActionRole,
+        AppNameRole,
+        ActionsRole,        // [{key, label}] without default / inline-reply
+        HasReplyRole,
+        ReplyPlaceholderRole,
+        ReplySubmitTextRole,
+        GroupRole           // app the notification is grouped under
     };
     Q_ENUM(Roles)
 
@@ -47,10 +53,18 @@ public:
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     QHash<int, QByteArray> roleNames() const override;
 
+    // Grouped by app: the newest notification goes on top of its app's group and
+    // that group moves to the top of the list
     Q_INVOKABLE void add(const Notification &notification);
     Q_INVOKABLE void remove(int index);
-    // Click on a past notification: bring its app forward
+    // Click on a past notification: its default action while the app still runs,
+    // else bring the app forward
     Q_INVOKABLE void activate(int index);
+    Q_INVOKABLE void invokeAction(int index, const QString &actionKey);
+    Q_INVOKABLE void reply(int index, const QString &text);
+    Q_INVOKABLE void clearGroup(const QString &group);
+    // Icon to show next to a group's name
+    Q_INVOKABLE QString groupIcon(const QString &group) const;
     Q_INVOKABLE void clearAll();
     Q_INVOKABLE void save();
 

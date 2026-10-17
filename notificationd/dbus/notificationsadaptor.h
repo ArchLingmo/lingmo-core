@@ -64,6 +64,10 @@ class NotificationsAdaptor: public QDBusAbstractAdaptor
 "      <arg type=\"u\"/>\n"
 "      <arg type=\"u\"/>\n"
 "    </signal>\n"
+"    <signal name=\"NotificationReplied\">\n"
+"      <arg type=\"u\" name=\"id\"/>\n"
+"      <arg type=\"s\" name=\"text\"/>\n"
+"    </signal>\n"
 "  </interface>\n"
         "")
 public:
@@ -82,6 +86,7 @@ public Q_SLOTS: // METHODS
 Q_SIGNALS: // SIGNALS
     void ActionInvoked(uint in0, const QString &in1);
     void NotificationClosed(uint in0, uint in1);
+    void NotificationReplied(uint id, const QString &text);
 };
 
 #endif
