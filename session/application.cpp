@@ -179,6 +179,15 @@ void Application::applyQtEnvironment()
     qputenv("QT_PLATFORM_PLUGIN", "lingmo");
     qunsetenv("QT_STYLE_OVERRIDE");
     qunsetenv("QT_QUICK_CONTROLS_STYLE");
+
+    // Lingmo's system-wide KDE config (kwinrulesrc…) lives in its own XDG config dir,
+    // ahead of /etc/xdg, so it cascades over files KDE packages own there
+    const QString lingmoDir = QStringLiteral("/usr/share/lingmo/xdg");
+    QStringList dirs = qEnvironmentVariable("XDG_CONFIG_DIRS", QStringLiteral("/etc/xdg")).split(QLatin1Char(':'), Qt::SkipEmptyParts);
+    if (!dirs.contains(lingmoDir)) {
+        dirs.prepend(lingmoDir);
+        qputenv("XDG_CONFIG_DIRS", dirs.join(QLatin1Char(':')).toLocal8Bit());
+    }
 }
 
 void Application::initEnvironments()
