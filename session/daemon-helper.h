@@ -10,6 +10,7 @@
 #include <QStringList>
 #include <QList>
 #include <QHash>
+#include <QSet>
 #include <QElapsedTimer>
 
 namespace LINGMO_SESSION {
@@ -48,6 +49,14 @@ namespace LINGMO_SESSION {
      */
     QHash<QString, int> m_restartCount;
     QHash<QString, QElapsedTimer> m_uptime;
+
+    /**
+     * @brief Crashes right after starting, per program, and the programs that now run
+     * with QtQuick's software renderer because OpenGL keeps failing for them (e.g. a
+     * graphics driver updated but its kernel module not reloaded yet).
+     */
+    QHash<QString, int> m_quickCrashes;
+    QSet<QString> m_softwareRendering;
 
     /**
      * @brief Whether to enable auto reload when process exited.
