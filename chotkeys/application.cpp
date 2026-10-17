@@ -71,6 +71,9 @@ void Application::initSetting()
 
     }
 
+    // Before the late defaults, so a Print key bound to Flameshot in Cinnamon/GNOME wins
+    importForeignShortcuts(setting);
+
     // Shortcuts that came later than the defaults above: add them to existing configs
     // too, unless the user already bound the command or the key to something else
     static const QList<QStringList> lateDefaults = {
@@ -78,6 +81,9 @@ void Application::initSetting()
         {"Meta+R", "Reload desktop", "lingmo-reload"},
         {"Meta+V", "Clipboard history", "lingmo-clipboard --history"},
         {"Meta+I", "Assistant", "lingmo-assistant"},
+        {"Print", "Screenshot", "lingmo-screenshot gui"},
+        {"Shift+Print", "Screenshot (all screens)", "lingmo-screenshot full"},
+        {"Ctrl+Print", "Screen recording", "lingmo-screenshot record"},
     };
     for (const QStringList &shortcut : lateDefaults) {
         bool bound = setting.childGroups().contains(shortcut[0]);
@@ -91,8 +97,6 @@ void Application::initSetting()
             setting.sync();
         }
     }
-
-    importForeignShortcuts(setting);
 
     all = setting.childGroups();
     for (int i = 0; i < all.size() ; ++i)
