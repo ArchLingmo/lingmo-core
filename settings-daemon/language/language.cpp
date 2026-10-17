@@ -60,7 +60,7 @@ void Language::setLanguage(const QString &code)
     if (code == "zh_CN") {
         settings.setValue("Font", "Noto Sans CJK SC");
     } else if (code.contains("en_")) {
-        settings.setValue("Font", "Noto Sans");
+        settings.setValue("Font", "Inter");
     } else if (code == "zh_TW") {
         settings.setValue("Font", "Noto Sans CJK TC");
     } else if (code == "zh_HK") {

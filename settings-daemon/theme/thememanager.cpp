@@ -108,7 +108,7 @@ ThemeManager::ThemeManager(QObject *parent)
         if (languageCode == "zh_CN") {
             fontName = "Noto Sans CJK SC";
         } else if (languageCode.contains("en_")) {
-            fontName = "Noto Sans";
+            fontName = "Inter";
         } else if (languageCode == "zh_TW") {
             fontName = "Noto Sans CJK TC";
         } else if (languageCode == "zh_HK") {
@@ -116,7 +116,7 @@ ThemeManager::ThemeManager(QObject *parent)
         } else if (languageCode == "ja_JP") {
             fontName = "Noto Serif CJK JP";
         } else {
-            fontName = "Noto Sans";
+            fontName = "Inter";
         }
 
         m_settings->setValue(s_systemFontName, fontName);
@@ -229,7 +229,7 @@ void ThemeManager::updateGtk2Config()
 
 QString ThemeManager::systemFont()
 {
-    return m_settings->value(s_systemFontName, "Noto Sans").toString();
+    return m_settings->value(s_systemFontName, "Inter").toString();
 }
 
 void ThemeManager::setSystemFont(const QString &fontFamily)
