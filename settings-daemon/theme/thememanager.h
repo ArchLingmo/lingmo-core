@@ -48,6 +48,10 @@ class ThemeManager : public QObject
     Q_PROPERTY(int cursorSize READ cursorSize WRITE setCursorSize NOTIFY cursorSizeChanged)
     Q_PROPERTY(QString iconTheme READ iconTheme WRITE setIconTheme NOTIFY iconThemeChanged)
     Q_PROPERTY(QString darkIconTheme READ darkIconTheme WRITE setDarkIconTheme NOTIFY iconThemeChanged)
+    // "Vidro Lingmo": 0 off (solid surfaces), 1 weak, 2 balanced, 3 strong
+    Q_PROPERTY(int glassLevel READ glassLevel WRITE setGlassLevel NOTIFY glassLevelChanged)
+    // Fewer and shorter animations (no springs, no light sheen)
+    Q_PROPERTY(bool reduceMotion READ reduceMotion WRITE setReduceMotion NOTIFY reduceMotionChanged)
 
 public:
     static ThemeManager *self();
@@ -120,6 +124,15 @@ public:
 
     void updateFontConfig();
 
+    int glassLevel() const;
+    void setGlassLevel(int level);
+
+    bool reduceMotion() const;
+    void setReduceMotion(bool reduce);
+
+    // KWin's blur strength follows the glass level
+    void applyBlurStrength();
+
 signals:
     void darkModeChanged(bool darkMode);
     void wallpaperChanged(QString path);
@@ -134,6 +147,8 @@ signals:
     void iconThemeChanged();
     void systemFontPointSizeChanged();
     void systemFontChanged();
+    void glassLevelChanged(int level);
+    void reduceMotionChanged(bool reduce);
 
 private:
     QSettings *m_settings;
@@ -159,6 +174,9 @@ private:
     QString m_iconTheme = "Lingmo";
 
     QString m_darkIconTheme = "Lingmo-dark";
+
+    int m_glassLevel = 2;
+    bool m_reduceMotion = false;
 };
 
 #endif

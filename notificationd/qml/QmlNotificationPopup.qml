@@ -43,21 +43,13 @@ NotificationPopup {
         radius: _background.radius
     }
 
-    LingmoUI.WindowBlur {
-        view: control
-        geometry: Qt.rect(control.x, control.y, control.width, control.height)
-        windowRadius: _background.radius
-        enabled: true
-    }
-
-    Rectangle {
+    // "Vidro Lingmo" (Settings > Appearance > Glass): the bubble fills its
+    // window and asks KWin for the blur; solid with Glass off
+    LingmoUI.GlassSurface {
         id: _background
         anchors.fill: parent
         radius: LingmoUI.Theme.hugeRadius
-        color: LingmoUI.Theme.backgroundColor
-        opacity: LingmoUI.Theme.darkMode ? 0.75 : 0.85
-        border.width: 1
-        border.color: LingmoUI.Theme.darkMode ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.08)
+        blurWindow: control
     }
 
     // Hovering anywhere (buttons included) holds the popup

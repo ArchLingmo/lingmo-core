@@ -81,6 +81,8 @@ void Application::initSetting()
         {"Meta+R", "Reload desktop", "lingmo-reload"},
         {"Meta+V", "Clipboard history", "lingmo-clipboard --history"},
         {"Meta+I", "Assistant", "lingmo-assistant"},
+        // Push-to-talk: a second press stops listening
+        {"Meta+Shift+I", "Ask the assistant by voice", "lingmo-assistant --voice"},
         {"Print", "Screenshot", "lingmo-screenshot gui"},
         {"Shift+Print", "Screenshot (all screens)", "lingmo-screenshot full"},
         {"Ctrl+Print", "Screen recording", "lingmo-screenshot record"},

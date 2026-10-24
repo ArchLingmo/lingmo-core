@@ -33,17 +33,13 @@ Item {
 
     readonly property color ink: LingmoUI.Theme.textColor
 
-    Rectangle {
+    // "Vidro Lingmo" (Settings > Appearance > Glass): the history panel fills
+    // its window and asks KWin for the blur; solid with Glass off
+    LingmoUI.GlassSurface {
         id: _background
         anchors.fill: parent
-        color: LingmoUI.Theme.backgroundColor
         radius: LingmoUI.Theme.hugeRadius * 1.3
-        opacity: LingmoUI.Theme.darkMode ? 0.75 : 0.82
-
-        border.width: 1 / LingmoUI.Units.devicePixelRatio
-        border.pixelAligned: Screen.devicePixelRatio > 1 ? false : true
-        border.color: LingmoUI.Theme.darkMode ? Qt.rgba(1, 1, 1, 0.12)
-                                              : Qt.rgba(0, 0, 0, 0.08)
+        blurWindow: NotificationDialog
     }
 
     readonly property rect screenRect: {
@@ -72,16 +68,6 @@ Item {
     LingmoUI.WindowShadow {
         view: NotificationDialog
         radius: _background.radius
-    }
-
-    LingmoUI.WindowBlur {
-        view: NotificationDialog
-        geometry: Qt.rect(NotificationDialog.x,
-                          NotificationDialog.y,
-                          NotificationDialog.width,
-                          NotificationDialog.height)
-        windowRadius: _background.radius
-        enabled: true
     }
 
     NumberAnimation {
@@ -212,13 +198,16 @@ Item {
 
                     HoverHandler { id: _itemHover }
 
+                    // A raised card on the glass
                     Rectangle {
                         anchors.fill: parent
-                        color: LingmoUI.Theme.secondBackgroundColor
+                        color: LingmoUI.Theme.glassEnabled ? LingmoUI.Theme.glassRaisedColor
+                                                           : LingmoUI.Theme.secondBackgroundColor
                         radius: LingmoUI.Theme.bigRadius
-                        opacity: _itemHover.hovered ? (LingmoUI.Theme.darkMode ? 0.7 : 1.0)
-                                                    : (LingmoUI.Theme.darkMode ? 0.5 : 0.75)
-                        Behavior on opacity { NumberAnimation { duration: 120 } }
+                        border.width: LingmoUI.Theme.glassEnabled ? 1 : 0
+                        border.color: LingmoUI.Theme.glassBorderColor
+                        opacity: _itemHover.hovered ? 1.0 : 0.8
+                        Behavior on opacity { NumberAnimation { duration: LingmoUI.Units.veryShortDuration } }
                     }
 
                     MouseArea {

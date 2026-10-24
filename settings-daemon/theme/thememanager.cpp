@@ -79,7 +79,7 @@ ThemeManager::ThemeManager(QObject *parent)
     m_Color6 = m_settings->value("Color6", "#4F596B").toString();
 
     // ArchLingmo wallpaper (lingmo-artwork) when installed, upstream default otherwise
-    const QString archLingmoWallpaper = QStringLiteral("/usr/share/backgrounds/lingmoos/lingmo-arch-monterey-4k.png");
+    const QString archLingmoWallpaper = QStringLiteral("/usr/share/backgrounds/lingmoos/silicio-light.jpg");
     const QString defaultWallpaper = QFile::exists(archLingmoWallpaper)
             ? archLingmoWallpaper
             : QStringLiteral("/usr/share/backgrounds/lingmoos/default.jpg");
@@ -93,6 +93,8 @@ ThemeManager::ThemeManager(QObject *parent)
     // written when they do)
     m_iconTheme = m_settings->value("IconTheme", "Lingmo").toString();
     m_darkIconTheme = m_settings->value("DarkIconTheme", "Lingmo-dark").toString();
+    m_glassLevel = qBound(0, m_settings->value("GlassLevel", 2).toInt(), 3);
+    m_reduceMotion = m_settings->value("ReduceMotion", false).toBool();
 
     // Start the DE and need to update the settings again.
     updateGtk3Config();
@@ -651,4 +653,75 @@ void ThemeManager::setDarkIconTheme(const QString &iconTheme)
     m_settings->setValue("DarkIconTheme", m_darkIconTheme);
     updateGtk3Config();
     emit iconThemeChanged();
+}
+
+// "Vidro Lingmo"
+// 0 off: solid surfaces (performance, accessibility); 1 weak; 2 balanced; 3 strong.
+// LingmoUI reads it (Theme.glassLevel) and scales tint, highlight, grain and
+// elevation; the blur itself is KWin's, whose strength is global.
+int ThemeManager::glassLevel() const
+{
+    return m_glassLevel;
+}
+
+void ThemeManager::setGlassLevel(int level)
+{
+    level = qBound(0, level, 3);
+    if (m_glassLevel == level)
+        return;
+
+    m_glassLevel = level;
+    m_settings->setValue("GlassLevel", level);
+    m_settings->sync();
+    applyBlurStrength();
+
+    emit glassLevelChanged(m_glassLevel);
+}
+
+bool ThemeManager::reduceMotion() const
+{
+    return m_reduceMotion;
+}
+
+void ThemeManager::setReduceMotion(bool reduce)
+{
+    if (m_reduceMotion == reduce)
+        return;
+
+    m_reduceMotion = reduce;
+    m_settings->setValue("ReduceMotion", reduce);
+    m_settings->sync();
+
+    emit reduceMotionChanged(m_reduceMotion);
+}
+
+void ThemeManager::applyBlurStrength()
+{
+    // Off keeps whatever strength KWin has: surfaces just stop asking for blur
+    if (m_glassLevel <= 0)
+        return;
+
+    // KWin's blur strength goes 1-15 (Lingmo ships 15)
+    static const int strength[] = { 0, 7, 11, 15 };
+
+    // kwriteconfig keeps kwinrc in KConfig's own format (QSettings would rewrite it)
+    QProcess *proc = new QProcess(this);
+    connect(proc, &QProcess::finished, this, [proc] {
+        proc->deleteLater();
+        QDBusMessage msg = QDBusMessage::createSignal(QStringLiteral("/KWin"),
+                                                      QStringLiteral("org.kde.KWin"),
+                                                      QStringLiteral("reloadConfig"));
+        QDBusConnection::sessionBus().send(msg);
+        QDBusMessage effect = QDBusMessage::createMethodCall(QStringLiteral("org.kde.KWin"),
+                                                             QStringLiteral("/Effects"),
+                                                             QStringLiteral("org.kde.kwin.Effects"),
+                                                             QStringLiteral("reconfigureEffect"));
+        effect << QStringLiteral("blur");
+        QDBusConnection::sessionBus().asyncCall(effect);
+    });
+    proc->start(QStringLiteral("kwriteconfig6"),
+                { QStringLiteral("--file"), QStringLiteral("kwinrc"),
+                  QStringLiteral("--group"), QStringLiteral("Effect-blur"),
+                  QStringLiteral("--key"), QStringLiteral("BlurStrength"),
+                  QString::number(strength[m_glassLevel]) });
 }

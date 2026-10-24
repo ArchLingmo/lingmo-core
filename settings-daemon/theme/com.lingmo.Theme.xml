@@ -68,6 +68,13 @@
         <arg name="type" type="s" direction="in"/>
     </method>
 
+    <method name="setGlassLevel">
+        <arg name="level" type="i" direction="in"/>
+    </method>
+    <method name="setReduceMotion">
+        <arg name="reduce" type="b" direction="in"/>
+    </method>
+
     <method name="applyXResources"></method>
     <method name="updateFontConfig"></method>
 
@@ -93,6 +100,8 @@
     <property name="cursorSize" type="i" access="read"/>
     <property name="iconTheme" type="s" access="read"/>    
     <property name="darkIconTheme" type="s" access="read"/>
+    <property name="glassLevel" type="i" access="read"/>
+    <property name="reduceMotion" type="b" access="read"/>
 
     <signal name="darkModeChanged">
         <arg type="b"/>
@@ -116,6 +125,12 @@
     <signal name="iconThemeChanged"></signal>
     <signal name="systemFontPointSizeChanged"></signal>
     <signal name="systemFontChanged"></signal>
+    <signal name="glassLevelChanged">
+        <arg type="i"/>
+    </signal>
+    <signal name="reduceMotionChanged">
+        <arg type="b"/>
+    </signal>
 
   </interface>
 </node>
