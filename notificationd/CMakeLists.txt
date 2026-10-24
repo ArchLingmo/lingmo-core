@@ -40,6 +40,16 @@ target_link_libraries(lingmo-notificationd
     KF6::WindowSystem
 )
 
+# Lingmo Intents: notify.show on com.lingmo.Notification /Intents
+find_package(LingmoIntents 1.0 QUIET)
+if(LingmoIntents_FOUND)
+    target_compile_definitions(lingmo-notificationd PRIVATE HAVE_LINGMO_INTENTS)
+    target_link_libraries(lingmo-notificationd LingmoIntents::LingmoIntents)
+    lingmo_install_intents(MANIFEST data/intents/lingmo-notificationd.json SERVICE data/com.lingmo.Notification.service)
+else()
+    message(WARNING "LingmoIntents not found: notificationd is built without app actions (intents)")
+endif()
+
 install(TARGETS lingmo-notificationd
     DESTINATION /usr/bin
     COMPONENT Runtime

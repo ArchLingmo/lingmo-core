@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=User folder names
+Name[pt_BR]=Nomes das pastas pessoais
+Comment=Offers to rename the personal folders after a language change
+Comment[pt_BR]=Oferece renomear as pastas pessoais depois de trocar o idioma
+Exec=lingmo-userdirs --login-check
+Icon=folder
+NoDisplay=true
+OnlyShowIn=Lingmo;
+X-systemd-skip=true

@@ -513,15 +513,12 @@ void Application::createConfigDirectory()
 
 void Application::updateUserDirs()
 {
-    // bool isLingmoOS = QFile::exists("/etc/lingmoos");
-
-    // if (!isLingmoOS)
-    //     return;
-
-    // QProcess p;
-    // p.setEnvironment(QStringList() << "LC_ALL=C");
-    // p.start("xdg-user-dirs-update", QStringList() << "--force");
-    // p.waitForFinished(-1);
+    // Folder names are not forced here (the old `LC_ALL=C xdg-user-dirs-update
+    // --force` only created new English folders next to the localized ones).
+    // xdg-user-dirs-update (autostart/systemd) creates missing folders, and
+    // lingmo-userdirs --login-check (/etc/xdg/autostart/lingmo-userdirs.desktop)
+    // offers to rename them when the language differs from user-dirs.locale.
+    // The session skips xdg-user-dirs-gtk's prompt (see ProcessManager).
 }
 
 int Application::runSync(const QString &program, const QStringList &args, const QStringList &env)

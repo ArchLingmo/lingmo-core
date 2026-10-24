@@ -15,6 +15,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake/)
 
+# Unit tests (userdirs engine): cmake -DBUILD_TESTING=ON, then ctest
+option(BUILD_TESTING "Build the unit tests" OFF)
+if(BUILD_TESTING)
+    enable_testing()
+endif()
+
 set(QT Core Gui Widgets Quick QuickControls2 DBus Xml LinguistTools GuiPrivate)
 find_package(Qt6 REQUIRED ${QT})
 
@@ -37,6 +43,7 @@ add_subdirectory(notificationd)
 add_subdirectory(sddm-helper)
 add_subdirectory(clipboard)
 add_subdirectory(chotkeys)
+add_subdirectory(userdirs)
 
 install(FILES lingmo DESTINATION /etc/ COMPONENT Runtime)
 install(FILES Desktop/Lingmo DESTINATION /etc/Desktop/ COMPONENT Runtime)

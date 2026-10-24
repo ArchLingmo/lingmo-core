@@ -38,6 +38,11 @@
 #include <QDir>
 
 #include <QDebug>
+#ifdef HAVE_LINGMO_INTENTS
+#include <LingmoIntents/intentservice.h>
+#include <QDBusPendingCallWatcher>
+#include <QDBusPendingReply>
+#endif
 
 Application::Application(int& argc, char** argv)
     : QApplication(argc, argv)
@@ -64,6 +69,9 @@ Application::Application(int& argc, char** argv)
 
         new NotificationAdaptor(this);
         QDBusConnection::sessionBus().registerObject("/Notification", this);
+#ifdef HAVE_LINGMO_INTENTS
+        publishIntents();
+#endif
 
         HistoryModel *history = HistoryModel::self();
         for (auto sig : {&HistoryModel::rowsInserted, &HistoryModel::rowsRemoved})
@@ -78,6 +86,43 @@ Application::Application(int& argc, char** argv)
         m_instance = true;
     }
 }
+
+#ifdef HAVE_LINGMO_INTENTS
+// notify.show (Lingmo Intents) on com.lingmo.Notification /Intents
+void Application::publishIntents()
+{
+    using LingmoIntents::IntentCall;
+    using LingmoIntents::IntentResult;
+    auto *intents = new LingmoIntents::IntentService(QStringLiteral("lingmo-notificationd"), this);
+    intents->handleAsync(QStringLiteral("notify.show"), [this](const IntentCall &call) {
+        const QVariantMap p = call.params();
+        // Who asked is shown as the app name (never taken from the parameters)
+        static const QHash<QString, QString> names{{QStringLiteral("assistant"), tr("Assistant")},
+                                                   {QStringLiteral("flows"), tr("Flows")},
+                                                   {QStringLiteral("spotlight"), tr("Spotlight")}};
+        const QString app = names.value(call.caller(), QStringLiteral("Lingmo"));
+        const QString urgency = p.value(QStringLiteral("urgency")).toString();
+        const uchar level = urgency == QLatin1String("low") ? 0 : urgency == QLatin1String("critical") ? 2 : 1;
+        // Through the bus, like any other app: the server reads the D-Bus message of each call
+        QDBusMessage msg = QDBusMessage::createMethodCall(QStringLiteral("org.freedesktop.Notifications"),
+                                                          QStringLiteral("/org/freedesktop/Notifications"),
+                                                          QStringLiteral("org.freedesktop.Notifications"),
+                                                          QStringLiteral("Notify"));
+        msg << app << uint(0) << p.value(QStringLiteral("icon")).toString() << p.value(QStringLiteral("title")).toString()
+            << p.value(QStringLiteral("body")).toString() << QStringList()
+            << QVariantMap{{QStringLiteral("urgency"), QVariant::fromValue(level)}} << int(-1);
+        auto *watcher = new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(msg), this);
+        connect(watcher, &QDBusPendingCallWatcher::finished, this, [watcher, call] {
+            watcher->deleteLater();
+            const QDBusPendingReply<uint> reply = *watcher;
+            if (reply.isError())
+                return call.finish(IntentResult::failed(reply.error().message()));
+            call.finish(IntentResult::ok({{QStringLiteral("id"), reply.value()}}));
+        });
+    });
+    intents->publish();
+}
+#endif
 
 void Application::showWindow()
 {

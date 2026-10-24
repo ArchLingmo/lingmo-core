@@ -279,6 +279,14 @@ void ProcessManager::loadAutoStartProcess()
             if (execValue.contains("gmenudbusmenuproxy"))
                 continue;
 
+            // xdg-user-dirs-gtk's prompt creates new localized folders next to
+            // the old ones instead of renaming them; lingmo-userdirs
+            // (--login-check, its own autostart entry) asks instead. Skipped
+            // whatever its OnlyShowIn says, and also for a copy in ~/.config.
+            if (QFileInfo(QProcess::splitCommand(execValue).value(0)).fileName()
+                == QLatin1String("xdg-user-dirs-gtk-update"))
+                continue;
+
             // 使用 QProcess::splitCommand 来解析命令和参数
             QStringList args = QProcess::splitCommand(execValue);
             // Desktop entry field codes (%U, %f, ...) have no files to expand to here

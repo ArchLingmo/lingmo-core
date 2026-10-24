@@ -82,4 +82,19 @@
         <translation>agora</translation>
     </message>
 </context>
+<context>
+    <name>Application</name>
+    <message>
+        <source>Assistant</source>
+        <translation>Assistente</translation>
+    </message>
+    <message>
+        <source>Flows</source>
+        <translation>Fluxos</translation>
+    </message>
+    <message>
+        <source>Spotlight</source>
+        <translation>Spotlight</translation>
+    </message>
+</context>
 </TS>

@@ -49,6 +49,9 @@ signals:
     void countChanged();
 
 private:
+#ifdef HAVE_LINGMO_INTENTS
+    void publishIntents();
+#endif
     NotificationServer *m_notificationServer;
     NotificationsModel *m_model;
     NotificationWindow *m_window;

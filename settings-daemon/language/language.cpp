@@ -22,6 +22,7 @@
 #include "theme/thememanager.h"
 
 #include <QDBusInterface>
+#include <QProcess>
 #include <QSettings>
 
 Language *Language::self()
@@ -71,6 +72,12 @@ void Language::setLanguage(const QString &code)
 
     m_settings->setValue("language", code);
     emit languageChanged();
+
+    // Offer to rename the personal folders (Documents -> Documentos...), in
+    // the new language. It asks only when the folders were made for another
+    // locale and the user hasn't chosen "don't ask again".
+    QProcess::startDetached(QStringLiteral("lingmo-userdirs"),
+                            {QStringLiteral("--language-changed"), code});
 
     QDBusInterface iface("org.freedesktop.Notifications",
                          "/org/freedesktop/Notifications",

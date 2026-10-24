@@ -1,0 +1,35 @@
+{
+  "format": "lingmo-intents",
+  "version": 1,
+  "app": "lingmo-notificationd",
+  "name": {"en": "Notifications", "pt_BR": "Notificações"},
+  "icon": "preferences-system-notifications",
+  "dbus": {"service": "com.lingmo.Notification", "path": "/Intents"},
+  "intents": [
+    {
+      "id": "notify.show",
+      "title": {"en": "Show notification", "pt_BR": "Mostrar notificação"},
+      "description": {"en": "Shows a notification on the desktop.", "pt_BR": "Mostra uma notificação na área de trabalho."},
+      "summary": {"en": "Notify “{title}”", "pt_BR": "Notificar «{title}»"},
+      "icon": "notifications",
+      "capabilities": ["create"],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "title": {"type": "string", "minLength": 1, "maxLength": 200, "title": {"en": "Title", "pt_BR": "Título"}},
+          "body": {"type": "string", "maxLength": 2000, "default": "", "x-multiline": true, "title": {"en": "Text", "pt_BR": "Texto"}},
+          "icon": {"type": "string", "maxLength": 100, "default": "dialog-information", "pattern": "[A-Za-z0-9_.-]+",
+                   "title": {"en": "Icon name", "pt_BR": "Nome do ícone"}},
+          "urgency": {"type": "string", "enum": ["low", "normal", "critical"], "default": "normal",
+                      "title": {"en": "Urgency", "pt_BR": "Urgência"}}
+        },
+        "required": ["title"]
+      },
+      "result": {"type": "object", "properties": {"id": {"type": "integer", "title": {"en": "Notification id", "pt_BR": "Id da notificação"}}}},
+      "examples": {
+        "pt_BR": ["mostrar notificação {title}", "notificar {title}", "avisar {title}"],
+        "en": ["show notification {title}", "notify {title}"]
+      }
+    }
+  ]
+}

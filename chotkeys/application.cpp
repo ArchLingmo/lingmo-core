@@ -86,6 +86,8 @@ void Application::initSetting()
         {"Print", "Screenshot", "lingmo-screenshot gui"},
         {"Shift+Print", "Screenshot (all screens)", "lingmo-screenshot full"},
         {"Ctrl+Print", "Screen recording", "lingmo-screenshot record"},
+        // Circle (or select) anything on the screen and ask the local AI about it
+        {"Meta+S", "Ask about the screen", "lingmo-screenshot ask"},
     };
     for (const QStringList &shortcut : lateDefaults) {
         bool bound = setting.childGroups().contains(shortcut[0]);
