@@ -81,8 +81,11 @@ void ProcessManager::startGlobalShortcuts()
     // autostart entry is OnlyShowIn=KDE, so the Lingmo session must start it, and
     // before KWin: KWin hands its default shortcuts (Alt+Tab, Alt+F4, ...) over only
     // when it registers them, so with no server running they end up with no key.
+    // kglobalacceld 6.8 no longer ships the daemon (it lives inside kwin_wayland):
+    // kglobalacceld-x11 keeps the X11 one in its own directory
     QString kglobalacceld;
-    for (const QString &path : {QStringLiteral("/usr/lib/kglobalacceld"),
+    for (const QString &path : {QStringLiteral("/usr/lib/kglobalacceld-x11/kglobalacceld"),
+                                QStringLiteral("/usr/lib/kglobalacceld"),
                                 QStringLiteral("/usr/libexec/kglobalacceld"),
                                 QStringLiteral("/usr/lib/x86_64-linux-gnu/libexec/kglobalacceld")}) {
         if (QFileInfo(path).isExecutable()) {
