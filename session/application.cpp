@@ -127,6 +127,11 @@ Application::Application(int &argc, char **argv)
     // /etc/environment): the shell must not inherit them back, and neither should
     // apps D-Bus/systemd start later
     applyQtEnvironment();
+    // The systemd user manager outlives a session and keeps the LANG/LANGUAGE/LC_* of
+    // the previous one: after a language change the import above would bring the old
+    // language back. The language chosen in Settings wins, and syncDBusEnvironment()
+    // below hands it to systemd and D-Bus for the apps they start.
+    initLanguage();
     // unset-environment can't drop what the systemd user manager inherited from
     // PAM, but an empty value overrides it, and Qt ignores an empty style
     runSync(QStringLiteral("systemctl"), {QStringLiteral("--user"), QStringLiteral("set-environment"),
@@ -271,6 +276,9 @@ void Application::initLanguage()
     if (!value.isEmpty()) {
         qputenv("LANGUAGE", value.toUtf8());
     }
+    // LC_ALL and LC_MESSAGES would override the interface language
+    qunsetenv("LC_ALL");
+    qputenv("LC_MESSAGES", str.toUtf8());
 }
 
 void Application::initScreenScaleFactors()
