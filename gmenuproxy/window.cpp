@@ -6,6 +6,8 @@
 
 #include "window.h"
 
+#include <QSet>
+
 #include <QDBusConnection>
 #include <QDBusMessage>
 #include <QDBusPendingCallWatcher>
@@ -466,8 +468,35 @@ uint Window::GetLayout(int parentId, int recursionDepth, const QStringList &prop
 
     int count = 0;
 
+    // LibreOffice (GTK) exports its menu bar as two sections with the same items: a
+    // section repeating one already shown is left out, or the bar shows every menu twice
+    QSet<QString> shownSections;
+    auto sectionSignature = [](const VariantMapList &items) {
+        QStringList parts;
+        for (const auto &m : items) {
+            parts << m.value(QStringLiteral("label")).toString() + QLatin1Char('|') + m.value(QStringLiteral("action")).toString()
+                    + QLatin1Char('|') + m.value(QStringLiteral("submenu-action")).toString();
+        }
+        return parts.join(QLatin1Char('\n'));
+    };
+
     const auto itemsToBeAdded = section.items;
     for (const auto &item : itemsToBeAdded) {
+        if (auto sec = item.constFind(QStringLiteral(":section")); sec != item.constEnd()) {
+            const GMenuSection target = qdbus_cast<GMenuSection>(sec->value<QDBusArgument>());
+            auto targetItems = m_currentMenu->getSection(target.subscription, target.menu).items;
+            if (targetItems.count() == 1) { // an alias to an alias, as below
+                const auto &only = targetItems.constFirst();
+                if (auto inner = only.constFind(QStringLiteral(":section")); inner != only.constEnd()) {
+                    const GMenuSection target2 = qdbus_cast<GMenuSection>(inner->value<QDBusArgument>());
+                    targetItems = m_currentMenu->getSection(target2.subscription, target2.menu).items;
+                }
+            }
+            const QString signature = sectionSignature(targetItems);
+            if (!signature.isEmpty() && shownSections.contains(signature))
+                continue;
+            shownSections.insert(signature);
+        }
         DBusMenuLayoutItem child{
             Utils::treeStructureToInt(section.id, sectionId, ++count),
             gMenuToDBusMenuProperties(item),
