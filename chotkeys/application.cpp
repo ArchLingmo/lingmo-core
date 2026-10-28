@@ -88,6 +88,14 @@ void Application::initSetting()
         {"Ctrl+Print", "Screen recording", "lingmo-screenshot record"},
         // Circle (or select) anything on the screen and ask the local AI about it
         {"Meta+S", "Ask about the screen", "lingmo-screenshot ask"},
+        // Live translation on/off with the last settings (Meta+T is KWin's tile editor)
+        {"Meta+Shift+T", "Live translation", "lingmo-translate --toggle"},
+        // Voice keyboard: type by voice in any app (lingmo-voicestudio); a second press stops.
+        // Meta+D is KWin's "Show desktop"; Meta+H is free in KWin and here.
+        {"Meta+H", "Dictation", "lingmo-dictation --toggle"},
+        // File actions: the conversion wheel for the files selected in Lingmo Files, or the
+        // files/picture on the clipboard (lingmo-fileaction; dragging + Shift/Ctrl/Alt also opens it)
+        {"Meta+Shift+A", "File actions", "lingmo-fileaction --keyboard"},
     };
     for (const QStringList &shortcut : lateDefaults) {
         bool bound = setting.childGroups().contains(shortcut[0]);
