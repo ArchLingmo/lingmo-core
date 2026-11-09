@@ -1,26 +1,125 @@
 #include "application.h"
+#include <QAction>
+#include <QDBusConnection>
+#include <QDBusConnectionInterface>
+#include <QDBusMessage>
+#include <QDBusPendingCallWatcher>
+#include <QFileInfo>
 #include <QFileSystemWatcher>
+#include <QGuiApplication>
+#include <KGlobalAccel>
 #include <QDebug>
 #include <QKeySequence>
 #include <QMap>
+#include <QProcess>
 #include <QRegularExpression>
+
+static QString runOutput(const QString &program, const QStringList &args)
+{
+    QProcess process;
+    process.start(program, args);
+    if (!process.waitForFinished(2000) || process.exitCode() != 0)
+        return QString();
+    return QString::fromUtf8(process.readAllStandardOutput()).trimmed();
+}
+
+// Wayland: Guake runs on XWayland and only sees the pointer while it is over an X
+// window, so "appear on the mouse display" picks a stale monitor. KWin knows the
+// active output: point Guake at it for this show, then put its setting back
+static bool toggleGuakeOnActiveOutput()
+{
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    const QString service = QStringLiteral("org.guake3.RemoteControl");
+    if (!bus.interface()->isServiceRegistered(service))
+        return false;
+    if (runOutput(QStringLiteral("gsettings"), {QStringLiteral("get"), QStringLiteral("org.guake.general"),
+                                                 QStringLiteral("mouse-display")}) != QLatin1String("true"))
+        return false;
+
+    QDBusMessage active = bus.call(QDBusMessage::createMethodCall(QStringLiteral("org.kde.KWin"), QStringLiteral("/KWin"),
+                                                                  QStringLiteral("org.kde.KWin"),
+                                                                  QStringLiteral("activeOutputName")), QDBus::Block, 1000);
+    if (active.type() != QDBusMessage::ReplyMessage || active.arguments().isEmpty())
+        return false;
+    const QString output = active.arguments().first().toString();
+
+    // GDK numbers X monitors in RandR order, the order xrandr lists them
+    // (" 0: +*DP-1 1920/598x1080/336+1440+0  DP-1")
+    int index = -1;
+    const QStringList monitors = runOutput(QStringLiteral("xrandr"), {QStringLiteral("--listmonitors")}).split('\n');
+    for (const QString &line : monitors) {
+        const QStringList fields = line.split(' ', Qt::SkipEmptyParts);
+        if (fields.size() >= 2 && fields.first().endsWith(':') && fields.last() == output) {
+            index = fields.first().chopped(1).toInt();
+            break;
+        }
+    }
+    if (index < 0)
+        return false;
+
+    auto setGuake = [](const QString &key, const QString &value) {
+        runOutput(QStringLiteral("gsettings"), {QStringLiteral("set"), QStringLiteral("org.guake.general"), key, value});
+    };
+    setGuake(QStringLiteral("display-n"), QString::number(index));
+    setGuake(QStringLiteral("mouse-display"), QStringLiteral("false"));
+    // Guake reads both keys while showing, before it answers
+    bus.call(QDBusMessage::createMethodCall(service, QStringLiteral("/org/guake3/RemoteControl"), service,
+                                            QStringLiteral("show_hide")), QDBus::Block, 3000);
+    setGuake(QStringLiteral("mouse-display"), QStringLiteral("true"));
+    return true;
+}
 
 // Exec lines carry arguments ("guake -t"): Qt 6 no longer splits them for us
 static void runCommand(const QString &command)
 {
     QStringList args = QProcess::splitCommand(command);
-    if (!args.isEmpty())
-        QProcess::startDetached(args.takeFirst(), args);
+    if (args.isEmpty())
+        return;
+
+    if (QFileInfo(args.first()).fileName() == QLatin1String("guake")
+            && (args.size() == 1 || args.at(1) == QLatin1String("-t"))
+            && QGuiApplication::platformName() != QLatin1String("xcb")
+            && toggleGuakeOnActiveOutput())
+        return;
+
+    // Wayland: lock with KWin's screen locker (kscreenlocker with the Lingmo
+    // theme); lingmo-screenlocker (Meta+L by default) is the X11 locker
+    if (QFileInfo(args.first()).fileName() == QLatin1String("lingmo-screenlocker")
+            && QGuiApplication::platformName() != QLatin1String("xcb")) {
+        QDBusMessage message = QDBusMessage::createMethodCall(QStringLiteral("org.freedesktop.ScreenSaver"),
+                                                              QStringLiteral("/ScreenSaver"),
+                                                              QStringLiteral("org.freedesktop.ScreenSaver"),
+                                                              QStringLiteral("Lock"));
+        auto *watcher = new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(message));
+        QObject::connect(watcher, &QDBusPendingCallWatcher::finished, [](QDBusPendingCallWatcher *call) {
+            if (call->isError())
+                QProcess::startDetached(QStringLiteral("loginctl"), {QStringLiteral("lock-session")});
+            call->deleteLater();
+        });
+        return;
+    }
+
+    QProcess::startDetached(args.takeFirst(), args);
 }
 
 Application::Application(QObject *parent)
     : QObject{parent}
 {
-    m_metaTap = new MetaTap(this);
-    connect(m_metaTap, &MetaTap::tapped, this, [this] {
-        if (!m_metaExec.isEmpty())
-            runCommand(m_metaExec);
-    });
+    // X11: grabs on the X server (QHotkey) and XInput 2 for Meta alone. Wayland:
+    // only the compositor sees the keyboard, so KGlobalAccel (inside KWin) and
+    // KWin's modifier-only shortcut calling metaTapped()
+    m_wayland = QGuiApplication::platformName() != QLatin1String("xcb");
+
+    QDBusConnection::sessionBus().registerService(QStringLiteral("com.lingmo.Chotkeys"));
+    QDBusConnection::sessionBus().registerObject(QStringLiteral("/Chotkeys"), this, QDBusConnection::ExportScriptableSlots);
+
+    if (!m_wayland) {
+        m_metaTap = new MetaTap(this);
+        connect(m_metaTap, &MetaTap::tapped, this, [this] {
+            if (!m_metaExec.isEmpty())
+                runCommand(m_metaExec);
+        });
+    }
     initSetting();
     const QString configFile = QStandardPaths::writableLocation(QStandardPaths::ConfigLocation)+"/lingmoglobalshortcutsrc";
     QFileSystemWatcher *m_FileWatcher = new QFileSystemWatcher(this);
@@ -30,6 +129,12 @@ Application::Application(QObject *parent)
         m_FileWatcher->addPath(configFile);
         initSetting();
     });
+}
+
+void Application::metaTapped()
+{
+    if (m_wayland && !m_metaExec.isEmpty())
+        runCommand(m_metaExec);
 }
 
 void Application::initSetting()
@@ -126,6 +231,23 @@ void Application::initSetting()
             continue;
         }
 
+        if (m_wayland) {
+            allkey << nullptr;
+            // One action per key; its name is the key so a new key is a new action
+            auto *action = new QAction(this);
+            action->setObjectName(all.at(i));
+            action->setText(setting.value("Comment", all.at(i)).toString());
+            action->setProperty("componentName", QStringLiteral("lingmo-chotkeys"));
+            action->setProperty("componentDisplayName", QStringLiteral("Lingmo"));
+            KGlobalAccel::self()->setDefaultShortcut(action, {sequence}, KGlobalAccel::NoAutoloading);
+            KGlobalAccel::self()->setShortcut(action, {sequence}, KGlobalAccel::NoAutoloading);
+            const QString exec = allexec.at(i);
+            connect(action, &QAction::triggered, this, [exec] { runCommand(exec); });
+            m_actions << action;
+            setting.endGroup();
+            continue;
+        }
+
         allkey << new QHotkey(sequence, true, this);
         qDebug() << "Is segistered:" << allkey[i]->isRegistered();
         QObject::connect(allkey.at(i), &QHotkey::activated,[=](){
@@ -138,6 +260,11 @@ void Application::initSetting()
 }
 void Application::cleanSetting()
 {
+    for (QAction *action : std::as_const(m_actions)) {
+        KGlobalAccel::self()->removeAllShortcuts(action);
+        delete action;
+    }
+    m_actions.clear();
     all.clear();
     allexec.clear();
     m_metaExec.clear();

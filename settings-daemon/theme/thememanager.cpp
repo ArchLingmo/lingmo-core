@@ -489,6 +489,11 @@ void ThemeManager::applyXResources()
 {
     m_settings->sync();
 
+    // X resources (Xft.dpi, Xcursor) belong to the X11 session; on Wayland KWin
+    // scales the outputs and sets up Xwayland itself
+    if (qgetenv("XDG_SESSION_TYPE") == "wayland")
+        return;
+
     qreal scaleFactor = this->devicePixelRatio();
     int fontDpi = 96 * scaleFactor;
 
@@ -517,7 +522,10 @@ void ThemeManager::applyXResources()
 void ThemeManager::applyCursor()
 {
     QProcess p;
-    p.start("cupdatecursor", QStringList() << cursorTheme() << QString::number(cursorSize() * devicePixelRatio()));
+    // On Wayland KWin scales the cursor with each output: the size stays logical
+    const bool wayland = qgetenv("XDG_SESSION_TYPE") == "wayland";
+    const qreal scale = wayland ? 1.0 : devicePixelRatio();
+    p.start("cupdatecursor", QStringList() << cursorTheme() << QString::number(cursorSize() * scale));
     p.waitForFinished(-1);
 
     QDBusMessage message = QDBusMessage::createSignal("/KGlobalSettings",

@@ -2,8 +2,9 @@
 Type=Application
 Exec=lingmo-session
 TryExec=lingmo-session
-Name=Lingmo Desktop
-Name[pt_BR]=Área de trabalho Lingmo
+Name=Lingmo (X11)
+Name[pt_BR]=Lingmo (X11)
+DesktopNames=Lingmo
 Keywords=session
 Keywords[pt_BR]=sessão;
 Comment=session

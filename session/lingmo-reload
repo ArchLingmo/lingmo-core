@@ -3,22 +3,30 @@
 # lingmo-session restarts each component it supervises as soon as it exits.
 #   lingmo-reload          restart bar, dock, launcher, notifications and shortcuts;
 #                          reload KWin's config
-#   lingmo-reload --full   also restart KWin itself
+#   lingmo-reload --full   also restart KWin itself (X11 only: on Wayland KWin is the
+#                          session, replacing it would end it)
+
+# The session this runs in: its Wayland socket, or its X display on X11
+if [ -n "$WAYLAND_DISPLAY" ]; then
+    key=WAYLAND_DISPLAY value=$WAYLAND_DISPLAY
+else
+    key=DISPLAY value=$DISPLAY
+fi
 
 # Tells lingmo-session these exits are wanted, so it restarts the components right
 # away and doesn't count them as crashes
-touch "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/lingmo-reload-$DISPLAY"
+touch "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/lingmo-reload-$value"
 
 # Only touch this session's processes (same display): another session of the same
 # user (a nested test session, a second seat) is left alone.
 # pgrep -x matches the process name, which the kernel truncates to 15 characters.
 for comm in lingmo-statusba lingmo-dock lingmo-launcher lingmo-notifica lingmo-chotkeys; do
     for pid in $(pgrep -u "$(id -u)" -x "$comm"); do
-        tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -qx "DISPLAY=$DISPLAY" && kill "$pid"
+        tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -qx "$key=$value" && kill "$pid"
     done
 done
 
-if [ "$1" = "--full" ]; then
+if [ "$1" = "--full" ] && [ -z "$WAYLAND_DISPLAY" ]; then
     setsid kwin_x11 --replace >/dev/null 2>&1 &
 else
     for qdbus in qdbus6 qdbus; do

@@ -46,5 +46,10 @@ add_subdirectory(chotkeys)
 add_subdirectory(userdirs)
 
 install(FILES lingmo DESTINATION /etc/ COMPONENT Runtime)
+# Portal backends for XDG_CURRENT_DESKTOP=Lingmo (xdg-desktop-portal lowercases the name)
+install(FILES xdg/lingmo-portals.conf DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/xdg-desktop-portal)
+install(FILES xdg/plasma-xdg-desktop-portal-kde-lingmo.conf
+        DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/systemd/user/plasma-xdg-desktop-portal-kde.service.d
+        RENAME lingmo.conf)
 install(FILES Desktop/Lingmo DESTINATION /etc/Desktop/ COMPONENT Runtime)
 install(PROGRAMS wallpaper-color-pick/lingmo-wallpaper-color-pick DESTINATION ${CMAKE_INSTALL_BINDIR})

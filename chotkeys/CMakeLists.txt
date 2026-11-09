@@ -3,6 +3,7 @@ list(APPEND CMAKE_MODULE_PATH ${ECM_MODULE_PATH})
 
 find_package(XCB MODULE REQUIRED COMPONENTS XCB KEYSYMS)
 find_package(X11)
+find_package(KF6GlobalAccel REQUIRED)
 
 set(PROJECT_SOURCES
     main.cpp
@@ -27,6 +28,7 @@ target_link_libraries(lingmo-chotkeys
     ${X11_LIBRARIES}
     ${X11_Xi_LIB}
     XCB::KEYSYMS
+    KF6::GlobalAccel
 )
 
 install(TARGETS lingmo-chotkeys RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

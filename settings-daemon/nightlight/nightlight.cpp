@@ -22,8 +22,14 @@
 
 #include <QDBusConnection>
 #include <QDebug>
+#include <QGuiApplication>
 
+#include <KConfig>
+#include <KConfigGroup>
+
+#ifdef HAVE_X11
 #include <xcb/randr.h>
+#endif
 #include <cmath>
 
 static const int s_minTemperature = 2500;
@@ -95,9 +101,16 @@ NightLight::NightLight(QObject *parent)
     if (!m_end.isValid())
         m_end = QTime(7, 0);
 
+    m_wayland = QGuiApplication::platformName().startsWith(QLatin1String("wayland"))
+        || qgetenv("XDG_SESSION_TYPE") == "wayland";
+
+#ifdef HAVE_X11
     int screen = 0;
-    m_connection = xcb_connect(nullptr, &screen);
-    if (xcb_connection_has_error(m_connection)) {
+    // On Wayland this would reach Xwayland, whose gamma isn't the screens'
+    m_connection = m_wayland ? nullptr : xcb_connect(nullptr, &screen);
+    if (!m_connection) {
+        // Wayland: KWin's Night Light (applyKWin)
+    } else if (xcb_connection_has_error(m_connection)) {
         xcb_disconnect(m_connection);
         m_connection = nullptr;
     } else {
@@ -116,6 +129,7 @@ NightLight::NightLight(QObject *parent)
         }
         free(version);
     }
+#endif
 
     m_animation.setEasingCurve(QEasingCurve::InOutQuad);
     connect(&m_animation, &QVariantAnimation::valueChanged, this, [this](const QVariant &value) {
@@ -142,8 +156,35 @@ NightLight::~NightLight()
     m_animation.stop();
     restore();
 
+#ifdef HAVE_X11
     if (m_connection)
         xcb_disconnect(m_connection);
+#endif
+}
+
+bool NightLight::supported() const
+{
+    if (m_wayland)
+        return true;
+#ifdef HAVE_X11
+    return m_connection != nullptr;
+#else
+    return false;
+#endif
+}
+
+void NightLight::applyKWin(bool active)
+{
+    // KWin animates the change itself
+    KConfig config(QStringLiteral("kwinrc"));
+    KConfigGroup group = config.group(QStringLiteral("NightColor"));
+    if (group.readEntry("Active", false) == active && group.readEntry("Mode", QString()) == QLatin1String("Constant")
+        && group.readEntry("NightTemperature", 0) == m_temperature)
+        return;
+    group.writeEntry("Active", active, KConfig::Notify);
+    group.writeEntry("Mode", QStringLiteral("Constant"), KConfig::Notify);
+    group.writeEntry("NightTemperature", m_temperature, KConfig::Notify);
+    config.sync();
 }
 
 void NightLight::setEnabled(bool enabled)
@@ -242,6 +283,12 @@ void NightLight::evaluate(int duration)
         emit activeChanged(active);
     }
 
+    if (m_wayland) {
+        applyKWin(active);
+        return;
+    }
+
+#ifdef HAVE_X11
     if (!m_connection)
         return;
 
@@ -268,10 +315,14 @@ void NightLight::evaluate(int duration)
     m_animation.setEndValue(target);
     m_animation.setDuration(qMax(1, duration));
     m_animation.start();
+#else
+    Q_UNUSED(duration)
+#endif
 }
 
 void NightLight::updateCrtcs()
 {
+#ifdef HAVE_X11
     xcb_randr_get_screen_resources_current_reply_t *resources =
             xcb_randr_get_screen_resources_current_reply(m_connection,
                 xcb_randr_get_screen_resources_current(m_connection, m_root), nullptr);
@@ -318,10 +369,12 @@ void NightLight::updateCrtcs()
 
     free(resources);
     m_original = ramps;
+#endif
 }
 
 void NightLight::apply(double kelvin)
 {
+#ifdef HAVE_X11
     if (!m_connection)
         return;
 
@@ -350,10 +403,14 @@ void NightLight::apply(double kelvin)
         m_settings.sync();
     }
     m_tinted = true;
+#else
+    Q_UNUSED(kelvin)
+#endif
 }
 
 void NightLight::restore()
 {
+#ifdef HAVE_X11
     if (!m_connection || !m_tinted)
         return;
 
@@ -368,4 +425,5 @@ void NightLight::restore()
     m_tinted = false;
     m_settings.setValue("Tinted", false);
     m_settings.sync();
+#endif
 }

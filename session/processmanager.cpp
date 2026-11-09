@@ -17,6 +17,8 @@
 #include <QDir>
 #include <QSet>
 #include <QProcess>
+#include <QGuiApplication>
+#include <QScreen>
 
 #include <QDBusInterface>
 #include <QDBusPendingCall>
@@ -35,7 +37,9 @@ ProcessManager::ProcessManager(Application *app, QObject *parent)
     , m_wmStarted(false)
     , m_waitLoop(nullptr)
 {
-    qApp->installNativeEventFilter(this);
+    // Only the X11 session waits for the window manager (NETRootInfo below)
+    if (QX11Info::isPlatformX11())
+        qApp->installNativeEventFilter(this);
 }
 
 ProcessManager::~ProcessManager()
@@ -53,6 +57,15 @@ ProcessManager::~ProcessManager()
 
 void ProcessManager::start()
 {
+    if (m_app->wayland()) {
+        // KWin is already up (it started us): it runs the global shortcuts itself
+        // (kglobalacceld-x11 is X11 only) and restores the outputs' layout, so no
+        // xrandr script and no window manager to wait for
+        startDaemonProcess();
+        watchOutputs();
+        return;
+    }
+
     applyScreenLayout();
     startGlobalShortcuts();
     startWindowManager();
@@ -137,16 +150,47 @@ void ProcessManager::startWindowManager()
     auto *wmProcess = new QProcess;
     wmProcess->setProcessChannelMode(QProcess::ForwardedChannels);
 
-    wmProcess->start(m_app->wayland() ? "kwin_wayland" : "kwin_x11", QStringList());
+    // X11 only: in the Wayland session KWin is the parent of lingmo-session
+    wmProcess->start(QStringLiteral("kwin_x11"), QStringList());
 
-    if (!m_app->wayland()) {
-        QEventLoop waitLoop;
-        m_waitLoop = &waitLoop;
-        // add a timeout to avoid infinite blocking if a WM fail to execute.
-        QTimer::singleShot(30 * 1000, &waitLoop, SLOT(quit()));
-        waitLoop.exec();
-        m_waitLoop = nullptr;
-    }
+    QEventLoop waitLoop;
+    m_waitLoop = &waitLoop;
+    // add a timeout to avoid infinite blocking if a WM fail to execute.
+    QTimer::singleShot(30 * 1000, &waitLoop, SLOT(quit()));
+    waitLoop.exec();
+    m_waitLoop = nullptr;
+}
+
+void ProcessManager::watchOutputs()
+{
+    // Wayland: with every output gone (a VT switch on NVIDIA, all monitors off) the
+    // shell's layer-shell surfaces close or end up on Qt's placeholder screen, on no
+    // monitor. Once real outputs are back, start the shell again on them.
+    auto *settle = new QTimer(this);
+    settle->setSingleShot(true);
+    settle->setInterval(1500);
+    connect(settle, &QTimer::timeout, this, [this] {
+        qDebug() << "Outputs are back: restarting the desktop components";
+        if (m_desktopAutoStartD)
+            m_desktopAutoStartD->restart({QStringLiteral("lingmo-statusbar"), QStringLiteral("lingmo-dock"),
+                                          QStringLiteral("lingmo-filemanager"), QStringLiteral("lingmo-launcher"),
+                                          QStringLiteral("lingmo-notificationd")});
+    });
+    auto check = [this, settle] {
+        int outputs = 0;
+        for (QScreen *screen : QGuiApplication::screens())
+            outputs += !screen->geometry().isEmpty(); // the placeholder has no geometry
+        if (outputs == 0) {
+            m_outputsLost = true;
+            settle->stop();
+        } else if (m_outputsLost) {
+            m_outputsLost = false;
+            settle->start();
+        }
+    };
+    // screenRemoved comes while the screen is still listed
+    connect(qApp, &QGuiApplication::screenAdded, this, [this, check] { QTimer::singleShot(0, this, check); });
+    connect(qApp, &QGuiApplication::screenRemoved, this, [this, check] { QTimer::singleShot(0, this, check); });
 }
 
 void ProcessManager::startDesktopProcess()
@@ -203,8 +247,12 @@ void ProcessManager::startDaemonProcess()
     QList<QPair<QString, QStringList>> list;
 
     list << qMakePair(QString("lingmo-settings-daemon"), QStringList());
-    list << qMakePair(QString("lingmo-xembedsniproxy"), QStringList());
-    list << qMakePair(QString("lingmo-gmenuproxy"), QStringList());
+    // Tray icons and global menus of X11 apps: on Wayland only for XWayland
+    // clients, and only when KWin started Xwayland (both qFatal without a display)
+    if (!m_app->wayland() || !qEnvironmentVariableIsEmpty("DISPLAY")) {
+        list << qMakePair(QString("lingmo-xembedsniproxy"), QStringList());
+        list << qMakePair(QString("lingmo-gmenuproxy"), QStringList());
+    }
 //    list << qMakePair(QString("lingmo-clipboard"), QStringList());
     list << qMakePair(QString("lingmo-chotkeys"), QStringList());
     // Password prompts for pkexec and apps asking for admin rights: restarted if it

@@ -38,6 +38,8 @@ public:
     void setLock(bool lock);
 
 private:
+    void lockScreen();
+
     QDBusInterface m_iface;
     int m_dimOnIdleTime = 0;
     int m_oldScreenBrightness = 0;

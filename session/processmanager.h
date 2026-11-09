@@ -47,6 +47,7 @@ public:
     void startWindowManager();
     void startDesktopProcess();
     void startDaemonProcess();
+    void watchOutputs();
 
     /**
      * @brief Start the user defined autostart process.
@@ -63,6 +64,7 @@ private:
 
     // Daemon helper for desktop components
     std::shared_ptr<LINGMO_SESSION::Daemon> m_desktopAutoStartD;
+    bool m_outputsLost = false;
 
     // Daemon helper for other daemon components
     std::shared_ptr<LINGMO_SESSION::Daemon> m_daemonAutoStartD;

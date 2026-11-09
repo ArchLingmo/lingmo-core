@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Exec=lingmo-session --wayland
+# Created before the greeter by /usr/lib/lingmo/lingmo-wayland-check only when the
+# GPU driver can run Wayland (NVIDIA needs nvidia_drm.modeset=1)
+TryExec=/run/lingmo-session/wayland-supported
+DesktopNames=Lingmo
+Name=Lingmo (Wayland, beta)
+Name[pt_BR]=Lingmo (Wayland, beta)
+Keywords=session;wayland;
+Keywords[pt_BR]=sessão;wayland;
+Comment=Lingmo desktop on Wayland (beta). If it fails to start, the next login goes back to Lingmo (X11)
+Comment[pt_BR]=Área de trabalho Lingmo no Wayland (beta). Se não abrir, o próximo login volta para o Lingmo (X11)

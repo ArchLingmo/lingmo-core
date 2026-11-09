@@ -21,7 +21,9 @@
 #define MOUSE_H
 
 #include <QObject>
-#include "x11libinputdummydevice.h"
+
+class X11LibinputDummyDevice;
+class KWinInputDevices;
 
 class Mouse : public QObject
 {
@@ -54,7 +56,18 @@ signals:
     void pointerAccelerationChanged();
 
 private:
-    X11LibinputDummyDevice *m_inputDummydevice;
+    void applyWayland();
+
+private:
+    // X11 session: libinput properties on the X server
+    X11LibinputDummyDevice *m_inputDummydevice = nullptr;
+    // Wayland session: KWin's input devices. Same settings file as on X11
+    // (lingmoos/mouse), so both sessions show and apply the same choices.
+    KWinInputDevices *m_kwin = nullptr;
+    bool m_leftHanded = false;
+    bool m_flat = false;
+    bool m_naturalScroll = false;
+    qreal m_pointerAcceleration = 0;
 };
 
 #endif // MOUSE_H

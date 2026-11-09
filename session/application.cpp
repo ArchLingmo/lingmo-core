@@ -18,6 +18,7 @@
  */
 
 #include "application.h"
+#include "waylandstart.h"
 #include <QFile>
 #include "sessionadaptor.h"
 
@@ -32,6 +33,13 @@
 
 #include <QDBusConnectionInterface>
 #include <QDBusServiceWatcher>
+#include <QDateTime>
+#include <QLocale>
+
+#include <KConfig>
+#include <KConfigGroup>
+#include <QSaveFile>
+#include <QTimer>
 
 // STL
 #include <optional>
@@ -72,7 +80,13 @@ bool isSessionVariable(const QByteArray &name)
     // Check is variable is specific to session.
     return name == "DISPLAY" || name == "XAUTHORITY" || //
         name == "WAYLAND_DISPLAY" || name == "WAYLAND_SOCKET" || //
-        name.startsWith("XDG_");
+        name.startsWith("XDG_") || //
+        // Set by this session for its display server: the systemd user manager keeps
+        // whatever the previous session (X11 or Wayland) pushed there
+        name == "QT_QPA_PLATFORM" || name == "QT_SCREEN_SCALE_FACTORS" || //
+        name == "GDK_SCALE" || name == "GDK_DPI_SCALE" || //
+        name == "XCURSOR_THEME" || name == "XCURSOR_SIZE" || name == "KWIN_COMPOSE" || //
+        name == "QSG_DISTANCEFIELD_ANTIALIASING";
 }
 
 void setEnvironmentVariable(const QByteArray &name, const QByteArray &value)
@@ -95,22 +109,32 @@ Application::Application(int &argc, char **argv)
     QDBusConnection::sessionBus().registerObject(QStringLiteral("/Session"), this);
 
     QCommandLineParser parser;
-    parser.setApplicationDescription(QStringLiteral("Lingmo Session"));
-    parser.addHelpOption();
-
-    QCommandLineOption waylandOption(QStringList() << "w" << "wayland" << "Wayland Mode");
-    parser.addOption(waylandOption);
+    addOptions(parser);
     parser.process(*this);
 
-    m_wayland = parser.isSet(waylandOption);
+    // --wayland (stage 1) never gets here: main() hands it to WaylandStart::exec()
+    m_wayland = parser.isSet(QStringLiteral("wayland-child"));
+
+    if (m_wayland) {
+        qInfo() << "Lingmo Wayland session: stage 2" << "WAYLAND_DISPLAY=" << qgetenv("WAYLAND_DISPLAY")
+                << "DISPLAY=" << qgetenv("DISPLAY");
+        WaylandStart::markChildStarted();
+    }
 
     createConfigDirectory();
-    initKWinConfig();
+    if (!m_wayland) {
+        initKWinConfig();
+    }
     initLanguage();
-    initScreenScaleFactors();
-    initXResource();
+    if (!m_wayland) {
+        initScreenScaleFactors();
+        initXResource();
+        WaylandStart::applySoftwareRenderingFallback(false);
+    }
 
     initEnvironments();
+    if (m_wayland)
+        applyWaylandEnvironment();
 
     if (!syncDBusEnvironment()) {
         // Startup error
@@ -136,18 +160,160 @@ Application::Application(int &argc, char **argv)
     // PAM, but an empty value overrides it, and Qt ignores an empty style
     runSync(QStringLiteral("systemctl"), {QStringLiteral("--user"), QStringLiteral("set-environment"),
                                           QStringLiteral("QT_STYLE_OVERRIDE="), QStringLiteral("QT_QUICK_CONTROLS_STYLE=")});
+    // Whatever the other session type left in the systemd user manager (it outlives
+    // sessions): Wayland's socket in an X11 session, X11's scale factors in a Wayland one
+    if (m_wayland) {
+        runSync(QStringLiteral("systemctl"), {QStringLiteral("--user"), QStringLiteral("unset-environment"),
+                                              QStringLiteral("QT_SCREEN_SCALE_FACTORS"), QStringLiteral("GDK_SCALE"),
+                                              QStringLiteral("GDK_DPI_SCALE")});
+    } else {
+        runSync(QStringLiteral("systemctl"), {QStringLiteral("--user"), QStringLiteral("unset-environment"),
+                                              QStringLiteral("WAYLAND_DISPLAY"), QStringLiteral("KWIN_COMPOSE"),
+                                              QStringLiteral("QSG_DISTANCEFIELD_ANTIALIASING")});
+    }
     syncDBusEnvironment();
+    restartStalePortal();
 
-    qunsetenv("XCURSOR_THEME");
-    qunsetenv("XCURSOR_SIZE");
+    if (!m_wayland) {
+        qunsetenv("XCURSOR_THEME");
+        qunsetenv("XCURSOR_SIZE");
+    }
     qunsetenv("SESSION_MANAGER");
 
     m_networkProxyManager->update();
 
     QTimer::singleShot(50, this, &Application::updateUserDirs);
 
+    if (m_wayland)
+        watchShellStarted();
+    else
+        checkFailedWaylandStart();
+
     // Launch Lingmo and user defined processes !
     QTimer::singleShot(100, m_processManager, &ProcessManager::start);
+}
+
+void Application::addOptions(QCommandLineParser &parser)
+{
+    parser.setApplicationDescription(QStringLiteral("Lingmo Session"));
+    parser.addHelpOption();
+    parser.addOption(QCommandLineOption({QStringLiteral("w"), QStringLiteral("wayland")},
+                                        QStringLiteral("Start the Wayland session (runs KWin, which starts --wayland-child)")));
+    parser.addOption(QCommandLineOption(QStringLiteral("wayland-child"),
+                                        QStringLiteral("Wayland session, second stage: started by KWin inside the compositor")));
+}
+
+void Application::applyWaylandEnvironment()
+{
+    qputenv("XDG_SESSION_TYPE", "wayland");
+    // Not forced: Qt picks Wayland (XWayland if that fails). Empty, not unset, so
+    // the xcb an X11 session left in the D-Bus/systemd activation environment is
+    // overridden too (Qt ignores an empty value)
+    qputenv("QT_QPA_PLATFORM", QByteArray());
+    // KWin scales each output; these would scale Qt and GTK apps a second time
+    qunsetenv("QT_SCREEN_SCALE_FACTORS");
+    qunsetenv("QT_SCALE_FACTOR");
+    qunsetenv("GDK_SCALE");
+    qunsetenv("GDK_DPI_SCALE");
+    qunsetenv("QT_AUTO_SCREEN_SCALE_FACTOR");
+    // KWin reports the monitors' subpixel layout as unknown, so Qt Quick falls back to
+    // grayscale text, softer than on X11 (where Xft.rgba gives it RGB). The Lingmo
+    // fontconfig asks for RGB: Qt Quick text then matches the X11 session
+    if (qEnvironmentVariableIsEmpty("QSG_DISTANCEFIELD_ANTIALIASING"))
+        qputenv("QSG_DISTANCEFIELD_ANTIALIASING", "subpixel");
+    // Native Wayland for SDL, Firefox and Electron where they don't pick it themselves
+    if (qEnvironmentVariableIsEmpty("MOZ_ENABLE_WAYLAND"))
+        qputenv("MOZ_ENABLE_WAYLAND", "1");
+    if (qEnvironmentVariableIsEmpty("ELECTRON_OZONE_PLATFORM_HINT"))
+        qputenv("ELECTRON_OZONE_PLATFORM_HINT", "auto");
+}
+
+void Application::checkFailedWaylandStart()
+{
+    const QString marker = WaylandStart::markerPath();
+    if (!QFile::exists(marker))
+        return;
+
+    // A Wayland start that never got as far as the status bar
+    QMap<QString, QString> values = WaylandStart::readMarker(marker);
+    values.insert(QStringLiteral("detected"), QDateTime::currentDateTime().toString(Qt::ISODate));
+    QSaveFile failed(WaylandStart::failedPath());
+    if (failed.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        for (auto it = values.constBegin(); it != values.constEnd(); ++it)
+            failed.write(it.key().toUtf8() + '=' + it.value().toUtf8() + '\n');
+        failed.commit();
+    }
+    QFile::remove(marker);
+
+    const QString reason = values.value(QStringLiteral("reason"), QStringLiteral("compositor"));
+    qWarning() << "The last Wayland session did not start:" << reason << "- back on X11";
+
+    // Shown once the notification server is up
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    static const QString service = QStringLiteral("org.freedesktop.Notifications");
+    if (bus.interface()->isServiceRegistered(service)) {
+        QTimer::singleShot(3000, this, [this, reason] { notifyFailedWaylandStart(reason); });
+        return;
+    }
+    auto *watcher = new QDBusServiceWatcher(service, bus, QDBusServiceWatcher::WatchForRegistration, this);
+    connect(watcher, &QDBusServiceWatcher::serviceRegistered, this, [this, watcher, reason] {
+        watcher->deleteLater();
+        // Let the shell settle so the notification isn't lost behind it
+        QTimer::singleShot(3000, this, [this, reason] { notifyFailedWaylandStart(reason); });
+    });
+}
+
+void Application::notifyFailedWaylandStart(const QString &reason)
+{
+    const bool pt = QLocale().name().startsWith(QLatin1String("pt"));
+    QString summary = pt ? QStringLiteral("A sessão Wayland não abriu") : QStringLiteral("The Wayland session did not start");
+    QString body;
+    if (reason == QLatin1String("nvidia-modeset")) {
+        body = pt ? QStringLiteral("O driver NVIDIA está sem o modeset do kernel (nvidia_drm.modeset=1), que o Wayland precisa. "
+                                   "Você está na sessão X11. Ligue o modeset e reinicie para usar o Wayland.")
+                  : QStringLiteral("The NVIDIA driver runs without kernel modesetting (nvidia_drm.modeset=1), which Wayland needs. "
+                                   "You are in the X11 session. Turn modesetting on and restart to use Wayland.");
+    } else if (reason == QLatin1String("nvidia-legacy")) {
+        body = pt ? QStringLiteral("Este driver NVIDIA é antigo demais para o Wayland (precisa da versão 495 ou mais nova). "
+                                   "Você está na sessão X11.")
+                  : QStringLiteral("This NVIDIA driver is too old for Wayland (it needs version 495 or newer). "
+                                   "You are in the X11 session.");
+    } else if (reason == QLatin1String("shell")) {
+        body = pt ? QStringLiteral("A barra e a área de trabalho não abriram na sessão Wayland, então a tela de login voltou "
+                                   "para a sessão X11. Você pode tentar o Wayland de novo na tela de login.")
+                  : QStringLiteral("The bar and the desktop did not come up in the Wayland session, so the login screen went "
+                                   "back to the X11 session. You can try Wayland again from the login screen.");
+    } else {
+        body = pt ? QStringLiteral("O compositor (KWin) não iniciou na sessão Wayland, então a tela de login voltou para a "
+                                   "sessão X11. Você pode tentar o Wayland de novo na tela de login.")
+                  : QStringLiteral("The compositor (KWin) did not start in the Wayland session, so the login screen went back "
+                                   "to the X11 session. You can try Wayland again from the login screen.");
+    }
+
+    QDBusMessage message = QDBusMessage::createMethodCall(QStringLiteral("org.freedesktop.Notifications"),
+                                                          QStringLiteral("/org/freedesktop/Notifications"),
+                                                          QStringLiteral("org.freedesktop.Notifications"),
+                                                          QStringLiteral("Notify"));
+    message << QStringLiteral("Lingmo") << 0u << QStringLiteral("dialog-warning") << summary << body
+            << QStringList() << QVariantMap{{QStringLiteral("urgency"), QVariant::fromValue<uchar>(1)}} << -1;
+    QDBusConnection::sessionBus().asyncCall(message);
+}
+
+void Application::watchShellStarted()
+{
+    // The shell is up once the status bar owns its name: then the Wayland start
+    // counts as good and the marker goes
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    static const QString service = QStringLiteral("com.lingmo.Statusbar");
+    if (bus.interface()->isServiceRegistered(service)) {
+        WaylandStart::clearMarker();
+        return;
+    }
+    auto *watcher = new QDBusServiceWatcher(service, bus, QDBusServiceWatcher::WatchForRegistration, this);
+    connect(watcher, &QDBusServiceWatcher::serviceRegistered, this, [watcher] {
+        watcher->deleteLater();
+        WaylandStart::clearMarker();
+    });
 }
 
 bool Application::wayland() const
@@ -338,36 +504,37 @@ void Application::initXResource()
 
 void Application::initKWinConfig()
 {
-    QSettings settings(QStandardPaths::writableLocation(QStandardPaths::ConfigLocation) + "/kwinrc",
-                       QSettings::IniFormat);
+    // KConfig, not QSettings: QSettings rewrites the whole file and mangles KWin's
+    // own groups ([Tiling][<uuid>] loses its id, [$Version] becomes [%24Version],
+    // JSON values lose their quotes)
+    KConfig config(QStringLiteral("kwinrc"));
 
-    settings.beginGroup("Effect-Blur");
-    settings.setValue("BlurStrength", 10);
-    settings.setValue("NoiseStrength", 0);
-    settings.endGroup();
+    KConfigGroup blur = config.group(QStringLiteral("Effect-Blur"));
+    blur.writeEntry("BlurStrength", 10);
+    blur.writeEntry("NoiseStrength", 0);
 
-    settings.beginGroup("Windows");
-    settings.setValue("FocusStealingPreventionLevel", 0);
-    settings.setValue("HideUtilityWindowsForInactive", false);
-    settings.setValue("BorderlessMaximizedWindows", false);
-    settings.setValue("Placement", "Centered");
-    settings.endGroup();
+    KConfigGroup windows = config.group(QStringLiteral("Windows"));
+    windows.writeEntry("FocusStealingPreventionLevel", 0);
+    windows.writeEntry("HideUtilityWindowsForInactive", false);
+    windows.writeEntry("BorderlessMaximizedWindows", false);
+    windows.writeEntry("Placement", "Centered");
+
+    KConfigGroup lingmo = config.group(QStringLiteral("Lingmo"));
 
     // Decoration defaults are written once per version, not on every login, so a
     // layout the user picks later is kept. v2: macOS-style buttons on the left.
     constexpr int kDecorationDefaultsVersion = 2;
-    if (settings.value("Lingmo/DecorationDefaultsVersion", 0).toInt() < kDecorationDefaultsVersion) {
+    if (lingmo.readEntry("DecorationDefaultsVersion", 0) < kDecorationDefaultsVersion) {
         // KWin 6.3+ reads the plugin from kdecoration3 and the button layout from kdecoration2
-        for (const char *group : {"org.kde.kdecoration2", "org.kde.kdecoration3"}) {
-            settings.beginGroup(group);
-            settings.setValue("BorderSize", "Normal");
-            settings.setValue("ButtonsOnLeft", "XIA");   // close, minimize, maximize
-            settings.setValue("ButtonsOnRight", "");
-            settings.setValue("library", "org.lingmo.decoration");
-            settings.setValue("theme", "");
-            settings.endGroup();
+        for (const char *name : {"org.kde.kdecoration2", "org.kde.kdecoration3"}) {
+            KConfigGroup group = config.group(QString::fromLatin1(name));
+            group.writeEntry("BorderSize", "Normal");
+            group.writeEntry("ButtonsOnLeft", "XIA");   // close, minimize, maximize
+            group.writeEntry("ButtonsOnRight", "");
+            group.writeEntry("library", "org.lingmo.decoration");
+            group.writeEntry("theme", "");
         }
-        settings.setValue("Lingmo/DecorationDefaultsVersion", kDecorationDefaultsVersion);
+        lingmo.writeEntry("DecorationDefaultsVersion", kDecorationDefaultsVersion);
     }
 
     // Lingmo used to ship a partial [kwin] group in /etc/xdg/kglobalshortcutsrc, which
@@ -375,17 +542,19 @@ void Application::initKWinConfig()
     // no key and no default, and it saved them that way. Drop those empty entries once
     // so KWin registers its defaults again; anything the user set is left alone.
     constexpr int kShortcutsRepairVersion = 1;
-    if (settings.value("Lingmo/ShortcutsRepairVersion", 0).toInt() < kShortcutsRepairVersion) {
+    if (lingmo.readEntry("ShortcutsRepairVersion", 0) < kShortcutsRepairVersion) {
         repairKWinShortcuts();
-        settings.setValue("Lingmo/ShortcutsRepairVersion", kShortcutsRepairVersion);
+        lingmo.writeEntry("ShortcutsRepairVersion", kShortcutsRepairVersion);
     }
 
     // Lingmo's window shortcuts on the Meta key (maximize, minimize, close, ...)
     constexpr int kWindowShortcutsVersion = 1;
-    if (settings.value("Lingmo/WindowShortcutsVersion", 0).toInt() < kWindowShortcutsVersion) {
+    if (lingmo.readEntry("WindowShortcutsVersion", 0) < kWindowShortcutsVersion) {
         applyWindowShortcuts();
-        settings.setValue("Lingmo/WindowShortcutsVersion", kWindowShortcutsVersion);
+        lingmo.writeEntry("WindowShortcutsVersion", kWindowShortcutsVersion);
     }
+
+    config.sync();
 }
 
 void Application::applyWindowShortcuts()
@@ -484,6 +653,33 @@ bool Application::syncDBusEnvironment()
     }
 
     return exitCode == 0;
+}
+
+// xdg-desktop-portal reads XDG_CURRENT_DESKTOP once, when it starts, to pick its
+// backends (lingmo-portals.conf: KDE's, then GTK's). One D-Bus started before the
+// environment above reached it runs with GTK's alone: no screen sharing on KWin,
+// browsers offer only their tabs. Such a portal is restarted with this session's.
+void Application::restartStalePortal()
+{
+    QProcess show;
+    show.start(QStringLiteral("systemctl"), {QStringLiteral("--user"), QStringLiteral("show"), QStringLiteral("--property=MainPID"),
+                                            QStringLiteral("--value"), QStringLiteral("xdg-desktop-portal.service")});
+    if (!show.waitForFinished(3000))
+        return;
+    const int pid = show.readAllStandardOutput().trimmed().toInt();
+    if (pid <= 0)
+        return;     // not running yet: it starts with the right environment
+
+    QFile environ(QStringLiteral("/proc/%1/environ").arg(pid));
+    if (!environ.open(QIODevice::ReadOnly))
+        return;
+    const QByteArray wanted = "XDG_CURRENT_DESKTOP=" + qgetenv("XDG_CURRENT_DESKTOP");
+    if (environ.readAll().split('\0').contains(wanted))
+        return;
+
+    qInfo() << "xdg-desktop-portal started without" << wanted << "- restarting it";
+    QProcess::startDetached(QStringLiteral("systemctl"), {QStringLiteral("--user"), QStringLiteral("restart"),
+                                                          QStringLiteral("xdg-desktop-portal.service")});
 }
 
 // Import systemd user environment.

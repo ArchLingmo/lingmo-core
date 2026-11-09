@@ -4,13 +4,27 @@ set(TARGET lingmo-settings-daemon)
 find_package(ECM REQUIRED NO_MODULE)
 list(APPEND CMAKE_MODULE_PATH ${ECM_MODULE_PATH})
 
-find_package(X11 REQUIRED)
-find_package(X11_XCB REQUIRED)
-find_package(XCB REQUIRED)
+find_package(KF6Config REQUIRED)
 
-pkg_check_modules(XORGLIBINPUT xorg-libinput IMPORTED_TARGET)
-pkg_check_modules(XORGSERVER xorg-server IMPORTED_TARGET)
-pkg_check_modules(SYNAPTICS xorg-synaptics IMPORTED_TARGET GLOBAL)
+# X11 backends (libinput/synaptics properties, setxkbmap and XKB state, RandR
+# gamma for the night light) are optional: without them the daemon only has the
+# Wayland ones (KWin over D-Bus, kxkbrc, kwinrc [NightColor]).
+# The same binary picks its backend at run time.
+option(WITH_X11 "Build the X11 backends" ON)
+if(WITH_X11)
+    find_package(X11)
+    find_package(X11_XCB)
+    find_package(XCB COMPONENTS XCB RANDR XKB RECORD)
+    pkg_check_modules(XORGLIBINPUT xorg-libinput IMPORTED_TARGET)
+    pkg_check_modules(XORGSERVER xorg-server IMPORTED_TARGET)
+    pkg_check_modules(SYNAPTICS xorg-synaptics IMPORTED_TARGET GLOBAL)
+    if(X11_FOUND AND X11_Xi_FOUND AND X11_XCB_FOUND AND XCB_FOUND AND XCB_RANDR_FOUND AND XCB_XKB_FOUND AND XCB_RECORD_FOUND
+       AND XORGLIBINPUT_FOUND AND XORGSERVER_FOUND AND SYNAPTICS_FOUND)
+        set(HAVE_X11 ON)
+    else()
+        message(WARNING "X11 development files missing: lingmo-settings-daemon is built without its X11 backends")
+    endif()
+endif()
 
 file (GLOB_RECURSE SRCS
   "*.cpp"
@@ -36,7 +50,12 @@ file (GLOB_RECURSE SRCS
   "nightlight/*.cpp"
   "keyboard/*.h"
   "keyboard/*.cpp"
+  "input/*.h"
+  "input/*.cpp"
 )
+if(NOT HAVE_X11)
+    list(FILTER SRCS EXCLUDE REGEX "/touchpad/x11/|/mouse/x11libinputdummydevice")
+endif()
 
 set(SOURCES ${SRCS})
 set(HEADERS "")
@@ -88,6 +107,11 @@ target_link_libraries(${TARGET}
         Qt6::DBus
         Qt6::GuiPrivate
         Qt6::Xml
+        KF6::ConfigCore
+)
+if(HAVE_X11)
+    target_compile_definitions(${TARGET} PRIVATE HAVE_X11)
+    target_link_libraries(${TARGET}
         ${X11_LIBRARIES}
         X11::X11
         X11::Xi
@@ -98,7 +122,8 @@ target_link_libraries(${TARGET}
         PkgConfig::XORGLIBINPUT
         PkgConfig::XORGSERVER
         PkgConfig::SYNAPTICS
-)
+    )
+endif()
 
 add_custom_target(translations DEPENDS ${QM_FILES} SOURCES ${ts_files_replaced})
 add_dependencies(${TARGET} translations)

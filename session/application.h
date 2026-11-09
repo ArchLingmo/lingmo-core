@@ -21,6 +21,10 @@
 #define APPLICATION_H
 
 #include <QApplication>
+#include <QCommandLineParser>
+#include <QDBusConnection>
+#include <QDBusMessage>
+#include <QDBusPendingCall>
 #include <chrono>
 #include <thread>
 
@@ -35,7 +39,21 @@ class Application : public QApplication
 public:
     explicit Application(int &argc, char **argv);
 
+    // true in the Wayland session's stage 2 (--wayland-child, started by KWin)
     bool wayland() const;
+
+    static void addOptions(QCommandLineParser &parser);
+
+    // Shared with the Wayland session's stage 1 (waylandstart.cpp)
+    static void createConfigDirectory();
+    static void initKWinConfig();
+    static void initLanguage();
+    static void initEnvironments();
+    static void applyQtEnvironment();
+    // Variables only the X11 session sets (or that a previous X11 session left in
+    // the systemd/D-Bus activation environment) out of the Wayland session
+    static void applyWaylandEnvironment();
+    static int runSync(const QString &program, const QStringList &args, const QStringList &env = {});
 
 public slots:
     void logout() {
@@ -70,23 +88,30 @@ public slots:
 
     // For callers that can't pass a string list (KWin scripts: the lock screen hot corner)
     void lockScreen() {
+        // Wayland: KWin's locker (lingmo-screenlocker is X11's)
+        if (m_wayland) {
+            QDBusConnection::sessionBus().asyncCall(QDBusMessage::createMethodCall(
+                QStringLiteral("org.freedesktop.ScreenSaver"), QStringLiteral("/ScreenSaver"),
+                QStringLiteral("org.freedesktop.ScreenSaver"), QStringLiteral("Lock")));
+            return;
+        }
         launch(QStringLiteral("lingmo-screenlocker"), QStringList());
     }
 
 private:
-    void initEnvironments();
-    void applyQtEnvironment();
-    void initLanguage();
     void initScreenScaleFactors();
     void initXResource();
-    void initKWinConfig();
-    void repairKWinShortcuts();
-    void applyWindowShortcuts();
+    static void repairKWinShortcuts();
+    static void applyWindowShortcuts();
     bool syncDBusEnvironment();
+    void restartStalePortal();
     void importSystemdEnvrionment();
-    void createConfigDirectory();
     void updateUserDirs();
-    int runSync(const QString &program, const QStringList &args, const QStringList &env = {});
+    // X11 session: a Wayland start that never came up (marker left behind)
+    void checkFailedWaylandStart();
+    void notifyFailedWaylandStart(const QString &reason);
+    // Wayland session: the start marker goes once the status bar is on the bus
+    void watchShellStarted();
 
 private:
     ProcessManager *m_processManager;

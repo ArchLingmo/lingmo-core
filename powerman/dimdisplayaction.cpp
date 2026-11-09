@@ -22,6 +22,7 @@
 #include <QSettings>
 #include <QTimer>
 #include <QDBusPendingCall>
+#include <QDBusPendingCallWatcher>
 #include <QtGui/private/qtx11extras_p.h>
 #include <QProcess>
 #include <QDebug>
@@ -86,7 +87,7 @@ void DimDisplayAction::onIdleTimeout(int msec)
         }
 
         if (m_lock) {
-            QProcess::startDetached("lingmo-screenlocker", QStringList());
+            lockScreen();
         }
 
     } else if (sec == (m_dimOnIdleTime * 3 / 4)) {
@@ -101,6 +102,27 @@ void DimDisplayAction::onIdleTimeout(int msec)
     }
 
     m_dimmed = true;
+}
+
+void DimDisplayAction::lockScreen()
+{
+    // Wayland: KWin's screen locker (kscreenlocker with the Lingmo theme). Its own
+    // idle lock is off in the Lingmo session (kscreenlockerrc Autolock=false), so
+    // this stays the only idle lock, as on X11.
+    if (qEnvironmentVariable("XDG_SESSION_TYPE") == QLatin1String("wayland")
+            || !qEnvironmentVariableIsEmpty("WAYLAND_DISPLAY")) {
+        QDBusMessage message = QDBusMessage::createMethodCall("org.freedesktop.ScreenSaver", "/ScreenSaver",
+                                                              "org.freedesktop.ScreenSaver", "Lock");
+        auto *watcher = new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(message), this);
+        connect(watcher, &QDBusPendingCallWatcher::finished, this, [](QDBusPendingCallWatcher *call) {
+            if (call->isError())
+                QProcess::startDetached("loginctl", {QStringLiteral("lock-session")});
+            call->deleteLater();
+        });
+        return;
+    }
+
+    QProcess::startDetached("lingmo-screenlocker", QStringList());
 }
 
 void DimDisplayAction::setTimeout(int timeout)

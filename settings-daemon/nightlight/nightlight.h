@@ -28,9 +28,15 @@
 #include <QVector>
 #include <QVariantAnimation>
 
+#ifdef HAVE_X11
 #include <xcb/xcb.h>
+#endif
 
-// Blue light filter for X11: tints every CRTC through its RandR gamma ramp.
+// Blue light filter.
+//   X11: tints every CRTC through its RandR gamma ramp.
+//   Wayland: KWin's Night Light does the tinting (only the compositor can):
+//     kwinrc [NightColor] Active/Mode=Constant/NightTemperature, written with
+//     KConfig notify so KWin picks it up at once. The schedule stays ours.
 class NightLight : public QObject
 {
     Q_OBJECT
@@ -70,7 +76,7 @@ public:
     void setSchedule(const QString &startTime, const QString &endTime);
 
     bool active() const { return m_active; }
-    bool supported() const { return m_connection != nullptr; }
+    bool supported() const;
 
     void toggle();
 
@@ -96,11 +102,16 @@ private:
     bool inSchedule() const;
     void updateCrtcs();
     void apply(double kelvin);
+    // Wayland: hand the target to KWin
+    void applyKWin(bool active);
 
 private:
     QSettings m_settings;
+    bool m_wayland = false;
+#ifdef HAVE_X11
     xcb_connection_t *m_connection = nullptr;
     xcb_window_t m_root = 0;
+#endif
 
     bool m_enabled;
     int m_temperature;

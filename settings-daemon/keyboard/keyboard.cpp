@@ -21,16 +21,30 @@
 #include "keyboardadaptor.h"
 
 #include <QDBusConnection>
+#include <QDBusMessage>
+#include <QDBusReply>
+#include <QDBusVariant>
+#include <QGuiApplication>
 #include <QSocketNotifier>
 #include <QProcess>
 #include <QFile>
 #include <QDebug>
 
+#include <KConfig>
+#include <KConfigGroup>
+
+#ifdef HAVE_X11
 // xkb.h uses "explicit" as a field name
 #define explicit explicit_
 #include <xcb/xkb.h>
 #undef explicit
+#endif
 #include <libintl.h>
+
+// KWin's keyboard layouts (Wayland): org.kde.keyboard on KWin's connection
+static const QString s_kwinService = QStringLiteral("org.kde.keyboard");
+static const QString s_layoutsPath = QStringLiteral("/Layouts");
+static const QString s_layoutsInterface = QStringLiteral("org.kde.KeyboardLayouts");
 
 static const QString s_defaultSwitchOption = QStringLiteral("grp:alt_shift_toggle");
 
@@ -55,11 +69,43 @@ Keyboard::Keyboard(QObject *parent)
     new KeyboardAdaptor(this);
     QDBusConnection::sessionBus().registerObject(QStringLiteral("/Keyboard"), this);
 
+    m_wayland = QGuiApplication::platformName().startsWith(QLatin1String("wayland"))
+        || qgetenv("XDG_SESSION_TYPE") == "wayland";
+
+    if (m_wayland) {
+        initWayland();
+        return;
+    }
+
+#ifdef HAVE_X11
+    if (!initX11())
+        return;
+
+    readRulesNames();
+    readState();
+
+    // Apply what the user chose at login; otherwise keep the system default
+    const QStringList saved = m_settings.value("Layouts").toStringList();
+    if (!saved.isEmpty()) {
+        m_layouts = saved;
+        emit layoutsChanged();
+        apply();
+    } else if (m_settings.contains("SwitchOption")) {
+        apply();
+    }
+
+    QMetaObject::invokeMethod(this, &Keyboard::processEvents, Qt::QueuedConnection);
+#endif
+}
+
+#ifdef HAVE_X11
+bool Keyboard::initX11()
+{
     m_connection = xcb_connect(nullptr, nullptr);
     if (xcb_connection_has_error(m_connection)) {
         xcb_disconnect(m_connection);
         m_connection = nullptr;
-        return;
+        return false;
     }
 
     m_root = xcb_setup_roots_iterator(xcb_get_setup(m_connection)).data->root;
@@ -72,7 +118,7 @@ Keyboard::Keyboard(QObject *parent)
         qWarning() << "Keyboard: the X server has no XKB";
         xcb_disconnect(m_connection);
         m_connection = nullptr;
-        return;
+        return false;
     }
     m_xkbEvent = xcb_get_extension_data(m_connection, &xcb_xkb_id)->first_event;
 
@@ -94,27 +140,128 @@ Keyboard::Keyboard(QObject *parent)
 
     m_notifier = new QSocketNotifier(xcb_get_file_descriptor(m_connection), QSocketNotifier::Read, this);
     connect(m_notifier, &QSocketNotifier::activated, this, &Keyboard::processEvents);
+    return true;
+}
+#endif
 
-    readRulesNames();
-    readState();
+void Keyboard::initWayland()
+{
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    bus.connect(s_kwinService, s_layoutsPath, s_layoutsInterface, QStringLiteral("layoutChanged"),
+                this, SLOT(onKWinLayoutChanged(uint)));
+    bus.connect(s_kwinService, s_layoutsPath, s_layoutsInterface, QStringLiteral("layoutListChanged"),
+                this, SLOT(onKWinLayoutListChanged()));
 
-    // Apply what the user chose at login; otherwise keep the system default
-    const QStringList saved = m_settings.value("Layouts").toStringList();
-    if (!saved.isEmpty()) {
-        m_layouts = saved;
-        emit layoutsChanged();
-        apply();
-    } else if (m_settings.contains("SwitchOption")) {
-        apply();
+    // What the user chose (in either session) wins; else kxkbrc as it is; else the
+    // system keymap (localectl), which X11 got from xorg.conf.d but KWin doesn't read
+    QStringList layouts = m_settings.value("Layouts").toStringList();
+    const KConfig kxkbrc(QStringLiteral("kxkbrc"));
+    const KConfigGroup kxkb = kxkbrc.group(QStringLiteral("Layout"));
+    for (const QString &option : kxkb.readEntry("Options", QString()).split(',', Qt::SkipEmptyParts)) {
+        if (!option.startsWith("grp:"))
+            m_options << option;
+    }
+    bool write = !layouts.isEmpty() || m_settings.contains("SwitchOption");
+
+    if (layouts.isEmpty()) {
+        const QStringList list = kxkb.readEntry("LayoutList", QString()).split(',', Qt::SkipEmptyParts);
+        const QStringList variants = kxkb.readEntry("VariantList", QString()).split(',');
+        for (int i = 0; i < list.size(); ++i) {
+            const QString variant = variants.value(i);
+            layouts << (variant.isEmpty() ? list.at(i) : QString("%1(%2)").arg(list.at(i), variant));
+        }
     }
 
-    QMetaObject::invokeMethod(this, &Keyboard::processEvents, Qt::QueuedConnection);
+    if (layouts.isEmpty()) {
+        auto locale1 = [](const QString &name) {
+            QDBusMessage call = QDBusMessage::createMethodCall(QStringLiteral("org.freedesktop.locale1"),
+                                                               QStringLiteral("/org/freedesktop/locale1"),
+                                                               QStringLiteral("org.freedesktop.DBus.Properties"),
+                                                               QStringLiteral("Get"));
+            call << QStringLiteral("org.freedesktop.locale1") << name;
+            const QDBusReply<QDBusVariant> reply = QDBusConnection::systemBus().call(call, QDBus::Block, 2000);
+            return reply.isValid() ? reply.value().variant().toString() : QString();
+        };
+        const QStringList list = locale1(QStringLiteral("X11Layout")).split(',', Qt::SkipEmptyParts);
+        const QStringList variants = locale1(QStringLiteral("X11Variant")).split(',');
+        for (int i = 0; i < list.size(); ++i) {
+            const QString variant = variants.value(i);
+            layouts << (variant.isEmpty() ? list.at(i) : QString("%1(%2)").arg(list.at(i), variant));
+        }
+        for (const QString &option : locale1(QStringLiteral("X11Options")).split(',', Qt::SkipEmptyParts)) {
+            if (!option.startsWith("grp:"))
+                m_options << option;
+        }
+        write = !layouts.isEmpty();
+    }
+
+    if (layouts.size() > 4)
+        layouts = layouts.mid(0, 4);
+    if (!layouts.isEmpty() && layouts != m_layouts) {
+        m_layouts = layouts;
+        emit layoutsChanged();
+    }
+
+    if (write)
+        apply();
+    readKWinLayout();
+}
+
+void Keyboard::readKWinLayout()
+{
+    QDBusMessage call = QDBusMessage::createMethodCall(s_kwinService, s_layoutsPath, s_layoutsInterface,
+                                                       QStringLiteral("getLayout"));
+    const QDBusReply<uint> reply = QDBusConnection::sessionBus().call(call);
+    if (reply.isValid())
+        onKWinLayoutChanged(reply.value());
+}
+
+void Keyboard::onKWinLayoutChanged(uint index)
+{
+    if (int(index) != m_currentIndex) {
+        m_currentIndex = int(index);
+        emit currentIndexChanged(m_currentIndex);
+    }
+}
+
+void Keyboard::onKWinLayoutListChanged()
+{
+    readKWinLayout();
+}
+
+void Keyboard::writeKxkbrc()
+{
+    QStringList layouts, variants;
+    for (const QString &entry : m_layouts) {
+        layouts << layoutOf(entry);
+        variants << variantOf(entry);
+    }
+    QStringList options = m_options;
+    if (!m_switchOption.isEmpty() && m_layouts.size() > 1)
+        options << m_switchOption;
+
+    // KConfig with Notify, and the signal KWin's keyboard layout module listens for
+    KConfig config(QStringLiteral("kxkbrc"));
+    KConfigGroup group = config.group(QStringLiteral("Layout"));
+    group.writeEntry("Use", true, KConfig::Notify);
+    group.writeEntry("LayoutList", layouts.join(','), KConfig::Notify);
+    group.writeEntry("VariantList", variants.join(','), KConfig::Notify);
+    group.writeEntry("Options", options.join(','), KConfig::Notify);
+    group.writeEntry("ResetOldOptions", !options.isEmpty(), KConfig::Notify);
+    if (!group.hasKey("SwitchMode"))
+        group.writeEntry("SwitchMode", QStringLiteral("Global"));
+    config.sync();
+
+    QDBusConnection::sessionBus().send(
+        QDBusMessage::createSignal(s_layoutsPath, QStringLiteral("org.kde.keyboard"), QStringLiteral("reloadConfig")));
 }
 
 Keyboard::~Keyboard()
 {
+#ifdef HAVE_X11
     if (m_connection)
         xcb_disconnect(m_connection);
+#endif
 }
 
 QStringList Keyboard::shortNames() const
@@ -183,11 +330,24 @@ void Keyboard::setSwitchOption(const QString &option)
 
 void Keyboard::setCurrentIndex(int index)
 {
-    if (!m_connection || index < 0 || index >= m_layouts.size())
+    if (index < 0 || index >= m_layouts.size())
+        return;
+
+    if (m_wayland) {
+        QDBusMessage call = QDBusMessage::createMethodCall(s_kwinService, s_layoutsPath, s_layoutsInterface,
+                                                           QStringLiteral("setLayout"));
+        call << uint(index);
+        QDBusConnection::sessionBus().asyncCall(call);
+        return;
+    }
+
+#ifdef HAVE_X11
+    if (!m_connection)
         return;
 
     xcb_xkb_latch_lock_state(m_connection, XCB_XKB_ID_USE_CORE_KBD, 0, 0, 1, index, 0, 0, 0);
     xcb_flush(m_connection);
+#endif
 }
 
 void Keyboard::nextLayout()
@@ -198,7 +358,14 @@ void Keyboard::nextLayout()
 
 void Keyboard::apply()
 {
-    if (!m_connection || m_layouts.isEmpty())
+    if (m_layouts.isEmpty())
+        return;
+
+    // Both sessions: KWin (Wayland) applies it; on X11 it keeps the two in step
+    writeKxkbrc();
+
+#ifdef HAVE_X11
+    if (m_wayland || !m_connection)
         return;
 
     QStringList layouts, variants;
@@ -218,8 +385,10 @@ void Keyboard::apply()
 
     if (!QProcess::startDetached("setxkbmap", args))
         qWarning() << "Keyboard: could not run setxkbmap";
+#endif
 }
 
+#ifdef HAVE_X11
 void Keyboard::readRulesNames()
 {
     if (!m_rulesAtom)
@@ -306,6 +475,7 @@ void Keyboard::processEvents()
         free(event);
     }
 }
+#endif
 
 void Keyboard::loadDescriptions()
 {

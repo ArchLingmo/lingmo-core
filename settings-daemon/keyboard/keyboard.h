@@ -25,12 +25,18 @@
 #include <QStringList>
 #include <QHash>
 
+#ifdef HAVE_X11
 #include <xcb/xcb.h>
+#endif
 
 class QSocketNotifier;
 
-// Keyboard layouts: applies the configured list with setxkbmap and follows
-// the active XKB group, whoever changes it (switch shortcut, other tools).
+// Keyboard layouts. The list always goes to kxkbrc ([Layout], what KWin reads)
+// with org.kde.keyboard reloadConfig, so both sessions share it.
+//   X11: applied with setxkbmap; the active XKB group is followed, whoever
+//        changes it (switch shortcut, other tools).
+//   Wayland: KWin owns the keymap; the active layout comes from (and is set
+//        through) KWin's org.kde.keyboard /Layouts.
 class Keyboard : public QObject
 {
     Q_OBJECT
@@ -61,19 +67,34 @@ signals:
     void switchOptionChanged();
     void currentIndexChanged(int index);
 
+private slots:
+    // KWin (Wayland)
+    void onKWinLayoutChanged(uint index);
+    void onKWinLayoutListChanged();
+
 private:
     void apply();
+    void writeKxkbrc();
+    void loadDescriptions();
+    // Wayland
+    void initWayland();
+    void readKWinLayout();
+#ifdef HAVE_X11
+    bool initX11();
     void readRulesNames();
     void readState();
     void processEvents();
-    void loadDescriptions();
+#endif
 
 private:
     QSettings m_settings;
+    bool m_wayland = false;
+#ifdef HAVE_X11
     xcb_connection_t *m_connection = nullptr;
     xcb_window_t m_root = 0;
     xcb_atom_t m_rulesAtom = 0;
     uint8_t m_xkbEvent = 0;
+#endif
     QSocketNotifier *m_notifier = nullptr;
 
     QStringList m_layouts;

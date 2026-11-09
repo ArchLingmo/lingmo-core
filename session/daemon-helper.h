@@ -12,6 +12,7 @@
 #include <QHash>
 #include <QSet>
 #include <QElapsedTimer>
+#include <QPointer>
 
 namespace LINGMO_SESSION {
   class Daemon : public QObject {
@@ -33,7 +34,18 @@ namespace LINGMO_SESSION {
      */
     void onProcessError(QProcess::ProcessError error);
 
+    /**
+     * Stop and start these programs again (or start them when they were given up on),
+     * without counting it as a failure. Used when the outputs come back on Wayland.
+     */
+    void restart(const QStringList &programs);
+
   private:
+    /**
+     * Start a program that went away again, with backoff, unless it keeps failing
+     */
+    void scheduleRestart(const QString &program, bool crashed);
+
     /**
      *  Start a given process using daemon helper
      * @brief startProcess
@@ -62,6 +74,13 @@ namespace LINGMO_SESSION {
      * @brief Whether to enable auto reload when process exited.
      */
     bool m_enableAutoRestart;
+
+    /**
+     * @brief The running process of each program, and the ones stopped on purpose by
+     * restart() (brought back right away).
+     */
+    QHash<QString, QPointer<QProcess>> m_processes;
+    QSet<QString> m_expectedExit;
   };
 }
 #endif

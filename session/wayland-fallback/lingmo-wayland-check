@@ -1,0 +1,140 @@
+#!/bin/bash
+# Lingmo (Wayland): offer the session only where it can run, and go back to X11
+# after a Wayland start that failed. Runs as root right before the SDDM greeter
+# (sddm-xsetup, SDDM's [X11] DisplayCommand). Same idea as packaging/dm-fallback.
+#
+#   lingmo-wayland-check gpu [--dry-run]       driver check: creates (or removes)
+#       $RUNDIR/wayland-supported, the TryExec= of lingmo-wayland.desktop, so SDDM
+#       only lists "Lingmo (Wayland)" when the GPU driver can run it; the reason
+#       goes to $RUNDIR/wayland-unsupported (Settings and Lingmo.System show it)
+#   lingmo-wayland-check greeter [--dry-run]   gpu, then: a user whose Wayland start
+#       marker (~/.local/state/lingmo-session/wayland-start, written by
+#       lingmo-session --wayland, removed once the bar is up) is still there and
+#       who has no Wayland session running failed to start it: if SDDM's last
+#       session is Lingmo (Wayland), it becomes Lingmo (X11). The X11 session then
+#       tells the user why (and turns the marker into wayland-failed).
+#
+# Never writes into home directories (root, user-owned paths) and only ever
+# changes [Last] Session= in SDDM's state file, from the Wayland to the X11 session.
+#
+# Test overrides: LINGMO_SDDM_STATE (state.conf), LINGMO_RUNDIR, LINGMO_SYSFS,
+# LINGMO_PASSWD (a passwd-format file instead of getent), LINGMO_SESSIONS (a file
+# with "uid type" lines instead of asking loginctl), LINGMO_LOG.
+set -uo pipefail
+
+STATE="${LINGMO_SDDM_STATE:-/var/lib/sddm/state.conf}"
+RUNDIR="${LINGMO_RUNDIR:-/run/lingmo-session}"
+SYS="${LINGMO_SYSFS:-/sys}"
+LOG="${LINGMO_LOG:-/var/log/lingmo-wayland-check.log}"
+X11_SESSION=/usr/share/xsessions/lingmo-xsession.desktop
+WAYLAND_FILE=lingmo-wayland.desktop
+DRY=0
+
+log() { echo "$(date -Is) $*" | tee -a "$LOG" 2>/dev/null || echo "$*"; }
+
+# Empty when the Wayland session can run here, else why not (same codes as
+# lingmo-session: nvidia-legacy, nvidia-modeset)
+unsupported_reason() {
+    [ -e "$SYS/module/nvidia" ] || return 0
+    local version major modeset
+    version=$(cat "$SYS/module/nvidia/version" 2>/dev/null)
+    major=${version%%.*}
+    if [[ $major =~ ^[0-9]+$ ]] && [ "$major" -lt 495 ]; then echo nvidia-legacy; return; fi
+    modeset=$(cat "$SYS/module/nvidia_drm/parameters/modeset" 2>/dev/null)
+    [ "$modeset" = Y ] || echo nvidia-modeset
+}
+
+check_gpu() {
+    local reason
+    reason=$(unsupported_reason)
+    if [ "$DRY" = 1 ]; then
+        echo "gpu: ${reason:-ok}"
+        return
+    fi
+    install -d -m 0755 "$RUNDIR"
+    if [ -z "$reason" ]; then
+        ln -sfn /usr/bin/true "$RUNDIR/wayland-supported"
+        rm -f "$RUNDIR/wayland-unsupported"
+    else
+        rm -f "$RUNDIR/wayland-supported"
+        echo "$reason" > "$RUNDIR/wayland-unsupported"
+        chmod 0644 "$RUNDIR/wayland-unsupported"
+    fi
+    echo "gpu: ${reason:-ok}"
+}
+
+# uid of every user with a running Wayland session
+wayland_uids() {
+    if [ -n "${LINGMO_SESSIONS:-}" ]; then
+        awk '$2 == "wayland" { print $1 }' "$LINGMO_SESSIONS"
+        return
+    fi
+    local id props
+    for id in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do
+        props=$(loginctl show-session "$id" -p User -p Type -p State 2>/dev/null)
+        grep -q '^Type=wayland$' <<<"$props" || continue
+        grep -qE '^State=(active|online)$' <<<"$props" || continue
+        sed -n 's/^User=//p' <<<"$props"
+    done
+}
+
+# key=value from the [Last] group of the state file
+state_get() {
+    awk -F= -v k="$1" '/^\[/ { g = $0; next } g == "[Last]" && $1 == k { sub(/^[^=]*=/, ""); print; exit }' "$STATE" 2>/dev/null
+}
+
+state_set_session() {
+    local tmp
+    tmp=$(mktemp) || return 1
+    awk -v v="$1" '
+        /^\[/ { g = $0 }
+        g == "[Last]" && /^Session=/ { print "Session=" v; next }
+        { print }' "$STATE" > "$tmp" || { rm -f "$tmp"; return 1; }
+    # Same file (owner, mode) rewritten in place
+    cat "$tmp" > "$STATE"
+    rm -f "$tmp"
+}
+
+check_greeter() {
+    check_gpu
+    [ -f "$STATE" ] || { echo "no SDDM state file: $STATE"; return 0; }
+
+    local last_session last_user running
+    last_session=$(state_get Session)
+    last_user=$(state_get User)
+    case "$last_session" in
+        */"$WAYLAND_FILE"|"$WAYLAND_FILE") ;;
+        *) echo "last session is not Lingmo (Wayland): nothing to do"; return 0 ;;
+    esac
+    running=" $(wayland_uids | tr '\n' ' ') "
+
+    local name uid home marker reason
+    while IFS=: read -r name _ uid _ _ home _; do
+        [[ $uid =~ ^[0-9]+$ ]] && [ "$uid" -ge 1000 ] && [ "$uid" -lt 60000 ] || continue
+        [ -z "$last_user" ] || [ "$last_user" = "$name" ] || continue
+        marker="$home/.local/state/lingmo-session/wayland-start"
+        # A plain file the user owns (no symlinks followed)
+        [ -f "$marker" ] && [ ! -L "$marker" ] || continue
+        [ "$(stat -c %u "$marker" 2>/dev/null)" = "$uid" ] || continue
+        # Still starting (or running) right now: not a failure
+        case "$running" in *" $uid "*|*" $name "*) continue ;; esac
+
+        reason=$(head -c 512 "$marker" | sed -n 's/^reason=\([a-z0-9-]*\)$/\1/p' | head -1)
+        if [ "$DRY" = 1 ]; then
+            echo "WOULD FALL BACK: $name (${reason:-unknown}) -> $X11_SESSION"
+            return 1
+        fi
+        state_set_session "$X11_SESSION" || { log "could not update $STATE"; return 1; }
+        log "Wayland start failed for $name (${reason:-unknown}): SDDM's last session is now $X11_SESSION"
+        return 1
+    done < <(if [ -n "${LINGMO_PASSWD:-}" ]; then cat "$LINGMO_PASSWD"; else getent passwd; fi)
+    echo "no failed Wayland start"
+}
+
+cmd=${1:-}
+[ "${2:-}" = "--dry-run" ] && DRY=1
+case "$cmd" in
+    gpu) check_gpu ;;
+    greeter) check_greeter ;;
+    *) echo "usage: $0 gpu|greeter [--dry-run]" >&2; exit 2 ;;
+esac

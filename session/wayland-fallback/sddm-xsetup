@@ -1,0 +1,6 @@
+#!/bin/sh
+# SDDM [X11] DisplayCommand (root, before every X11 greeter, see lingmo-wayland.conf):
+# Lingmo's Wayland checks, then SDDM's usual Xsetup.
+/usr/lib/lingmo/lingmo-wayland-check greeter >/dev/null 2>&1
+[ -x /usr/share/sddm/scripts/Xsetup ] && exec /usr/share/sddm/scripts/Xsetup
+exit 0

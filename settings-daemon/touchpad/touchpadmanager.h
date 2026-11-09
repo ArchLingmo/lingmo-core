@@ -2,7 +2,10 @@
 #define TOUCHPADMANAGER_H
 
 #include <QObject>
-#include "x11/xlibbackend.h"
+#include <QVariant>
+
+class XlibBackend;
+class KWinInputDevices;
 
 class TouchpadManager : public QObject
 {
@@ -31,7 +34,17 @@ public:
     void setPointerAcceleration(qreal value);
 
 private:
-    XlibBackend *m_backend;
+    // Wayland: what the user chose (same file and keys as the X11 libinput backend:
+    // lingmoos/touchpadxlibinputrc, one group per device name), else KWin's value
+    QVariant waylandValue(const QString &key) const;
+    void setWaylandValue(const QString &key, const QVariant &value);
+    void applyWayland();
+
+private:
+    // X11 session (null when there is no X server, e.g. on Wayland)
+    XlibBackend *m_backend = nullptr;
+    // Wayland session
+    KWinInputDevices *m_kwin = nullptr;
 };
 
 #endif // TOUCHPADMANAGER_H
